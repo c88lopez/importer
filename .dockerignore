@@ -1,0 +1,7 @@
+k8s/
+*.md
+Makefile
+.git
+.idea
+.github/
+bin/

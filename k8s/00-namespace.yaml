@@ -1,0 +1,5 @@
+# A Namespace is a folder for cluster objects. Deleting it deletes everything inside.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: importer-api

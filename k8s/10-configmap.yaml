@@ -1,0 +1,12 @@
+# A ConfigMap holds non-secret config. The Deployment injects these as env vars.
+# Change a value, re-apply, then `make restart` to see pods pick it up.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: importer-api-config
+  namespace: importer-api
+data:
+  APP_ENV: "k8s-local"
+  WELCOME_MESSAGE: "Hello from inside the cluster!"
+  # Only these take the pod out of the Service when down; others just show in /readyz.
+  CRITICAL_DEPENDENCIES: "postgres,rabbitmq"
