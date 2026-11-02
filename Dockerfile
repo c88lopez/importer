@@ -15,5 +15,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH \
 FROM gcr.io/distroless/static-debian12:nonroot
 COPY --from=build /out/importer-api /importer-api
 EXPOSE 8080
-USER nonroot:nonroot
+# Numeric UID (distroless "nonroot"): the kubelet can only verify runAsNonRoot
+# from a number, since it can't look up user names inside the image.
+USER 65532:65532
 ENTRYPOINT ["/importer-api"]
