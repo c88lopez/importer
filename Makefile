@@ -1,5 +1,5 @@
 APP       := importer-api
-VERSION   ?= 1.0.0
+VERSION   ?= 1.0.1
 IMAGE     := ghcr.io/c88lopez/$(APP):$(VERSION)
 NAMESPACE := importer-api
 

@@ -25,9 +25,9 @@ spec:
       terminationGracePeriodSeconds: 20 # time between SIGTERM and SIGKILL
       containers:
         - name: importer-api
-          # Built and pushed by .github/workflows/build.yml when a v1.0.0 tag is pushed.
+          # Built and pushed by .github/workflows/build.yml when a v1.0.1 tag is pushed.
           # Pin a version tag (not :latest) so you always know what's running.
-          image: ghcr.io/c88lopez/importer-api:1.0.0
+          image: ghcr.io/c88lopez/importer-api:1.0.1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
