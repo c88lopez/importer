@@ -17,10 +17,16 @@ import (
 var version = "dev"
 
 func main() {
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	logger := slog.New(traceLogHandler{slog.NewJSONHandler(os.Stdout, nil)})
 	slog.SetDefault(logger)
 
 	cfg := loadConfig()
+
+	shutdownTracing, err := setupTracing(context.Background())
+	if err != nil {
+		slog.Error("tracing setup failed", "err", err)
+		os.Exit(1)
+	}
 
 	checks, closeChecks, err := newCheckers(cfg)
 	if err != nil {
@@ -35,7 +41,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           logRequests(newRouter(cfg, newStore(), &ready, checks)),
+		Handler:           traceRequests(logRequests(newRouter(cfg, newStore(), &ready, checks))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -60,6 +66,10 @@ func main() {
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("graceful shutdown failed", "err", err)
+	}
+	// Flush buffered spans
+	if err := shutdownTracing(shutdownCtx); err != nil {
+		slog.Error("tracing shutdown failed", "err", err)
 	}
 	slog.Info("server stopped")
 }
@@ -122,6 +132,6 @@ func logRequests(next http.Handler) http.Handler {
 		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
 			return // probes are noisy
 		}
-		slog.Info("request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start).String())
+		slog.InfoContext(r.Context(), "request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start).String())
 	})
 }

@@ -125,6 +125,19 @@ make status
 curl http://192.168.68.57:30080/readyz
 ```
 
+## Tracing
+
+Each request (except `/healthz` and `/readyz`) gets an OpenTelemetry span named after its route, like `GET /api/items/{id}`. Spans go over OTLP/gRPC to `OTEL_EXPORTER_OTLP_ENDPOINT`; in the cluster that's Alloy, which forwards them to Tempo (see `../monitoring-and-observability/k8s/`). With the variable unset, tracing is off.
+
+Request log lines carry `trace_id` and `span_id`, so in Grafana a log line in Loki links to its trace in Tempo, and a trace links back to its logs.
+
+To send traces from `make run` to the cluster:
+
+```sh
+kubectl -n monitoring port-forward svc/alloy 4317:4317 &
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 make run
+```
+
 ## Experiments to try
 
 **See load balancing.** Run this a few times and watch the `pod` field change:

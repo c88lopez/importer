@@ -10,3 +10,5 @@ data:
   WELCOME_MESSAGE: "Hello from inside the cluster!"
   # Only these take the pod out of the Service when down; others just show in /readyz.
   CRITICAL_DEPENDENCIES: "postgres,rabbitmq"
+  # Send traces to Alloy, which forwards them to Tempo. Remove to turn tracing off.
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://alloy.monitoring.svc:4317"

@@ -25,9 +25,9 @@ spec:
       terminationGracePeriodSeconds: 20 # time between SIGTERM and SIGKILL
       containers:
         - name: importer-api
-          # Built and pushed by .github/workflows/build.yml when a v1.0.1 tag is pushed.
+          # Built and pushed by .github/workflows/build.yml when a v1.1.0 tag is pushed.
           # Pin a version tag (not :latest) so you always know what's running.
-          image: ghcr.io/c88lopez/importer-api:1.0.1
+          image: ghcr.io/c88lopez/importer-api:1.1.0
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -62,7 +62,7 @@ spec:
               memory: 32Mi
             limits: # hard cap; exceeding memory gets the container OOMKilled
               cpu: 250m
-              memory: 64Mi
+              memory: 128Mi # OpenTelemetry SDK + span buffer on top of the app
           securityContext:
             runAsNonRoot: true
             runAsUser: 65532 # distroless "nonroot"; must be numeric for runAsNonRoot to verify
