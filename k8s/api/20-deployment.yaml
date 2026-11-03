@@ -1,0 +1,75 @@
+# A Deployment says "keep N copies of this pod running". It creates a ReplicaSet,
+# which creates the Pods. Changing the pod template triggers a rolling update.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: importer-api
+  namespace: importer
+  labels:
+    app: importer-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: importer-api # must match the pod template labels below
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0 # never drop below 2 ready pods during an update
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: importer-api
+    spec:
+      terminationGracePeriodSeconds: 20 # time between SIGTERM and SIGKILL
+      containers:
+        - name: importer-api
+          # Built and pushed by .github/workflows/build.yml when a v1.6.0 tag is pushed.
+          # Pin a version tag (not :latest) so you always know what's running.
+          image: ghcr.io/c88lopez/importer-api:1.6.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            # /metrics for Prometheus (scraped via k8s/40-podmonitor.yaml). Not in
+            # the Service, so it isn't reachable through the NodePort.
+            - name: metrics
+              containerPort: 9464
+          envFrom:
+            - configMapRef:
+                name: importer-api-config
+            # DATABASE_URL, REDIS_URL, RABBITMQ_URL contain passwords, so they live in a
+            # Secret (make secrets creates it). optional: pods still start if it doesn't exist yet.
+            - secretRef:
+                name: importer-api-deps
+                optional: true
+          env:
+            - name: PORT
+              value: "8080"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3 # /readyz pings dependencies with a 2s budget
+            failureThreshold: 3
+          resources:
+            requests: # what the scheduler reserves on a node
+              cpu: 50m
+              memory: 32Mi
+            limits: # hard cap; exceeding memory gets the container OOMKilled
+              cpu: 250m
+              memory: 128Mi # OpenTelemetry SDK + span buffer on top of the app
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532 # distroless "nonroot"; must be numeric for runAsNonRoot to verify
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true

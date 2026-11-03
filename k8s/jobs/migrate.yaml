@@ -8,7 +8,7 @@ apiVersion: batch/v1
 kind: Job
 metadata:
   name: importer-api-migrate
-  namespace: importer-api
+  namespace: importer
   labels:
     app: importer-api
     component: migrate
@@ -26,7 +26,7 @@ spec:
       containers:
         - name: migrate
           # make migrate replaces this with the image for $(VERSION).
-          image: ghcr.io/c88lopez/importer-api:1.5.0
+          image: ghcr.io/c88lopez/importer-api:1.6.0
           args: ["migrate", "up"]
           envFrom:
             # Not optional here: without DATABASE_URL there's nothing to migrate.

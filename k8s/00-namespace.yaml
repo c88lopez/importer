@@ -1,5 +1,6 @@
-# A Namespace is a folder for cluster objects. Deleting it deletes everything inside.
+# One namespace for the importer services. Deleting it deletes both of them;
+# `make undeploy` removes the services but keeps the namespace.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: importer-api
+  name: importer

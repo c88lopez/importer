@@ -1,7 +1,8 @@
-# Tests the code, then builds the image and pushes it to GitHub Container Registry.
+# Tests the code, then builds one image per service and pushes them to
+# GitHub Container Registry. Both services share the version.
 #
-#   push to main      -> ghcr.io/<owner>/importer-api:main, :sha-<short>
-#   push tag v1.2.3   -> ghcr.io/<owner>/importer-api:1.2.3, :1.2, :latest
+#   push to main      -> ghcr.io/<owner>/importer-{api,worker}:main, :sha-<short>
+#   push tag v1.2.3   -> ghcr.io/<owner>/importer-{api,worker}:1.2.3, :1.2, :latest
 #   pull request      -> build only, nothing is pushed
 name: build
 
@@ -15,14 +16,11 @@ permissions:
   contents: read
   packages: write # lets GITHUB_TOKEN push to ghcr.io
 
-env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/importer-api
-
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Throwaway Postgres and RabbitMQ so the store, migration and outbox
-    # tests run here too (they skip without TEST_DATABASE_URL/TEST_RABBITMQ_URL).
+    # Throwaway Postgres and RabbitMQ so the database and RabbitMQ tests run
+    # here too (they skip without TEST_DATABASE_URL/TEST_RABBITMQ_URL).
     services:
       postgres:
         image: postgres:18-alpine
@@ -51,11 +49,17 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
-      - run: go test -v ./...
+      # -p 1: packages share the test database, so run them one at a time.
+      - run: go test -v -p 1 ./...
 
   image:
     needs: test
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [api, worker]
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/importer-${{ matrix.app }}
     steps:
       - uses: actions/checkout@v5
 
@@ -89,6 +93,8 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          build-args: VERSION=${{ steps.meta.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          build-args: |
+            APP=${{ matrix.app }}
+            VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.app }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.app }}

@@ -1,0 +1,24 @@
+# Tells Prometheus (kube-prometheus-stack in the monitoring namespace) to scrape
+# /metrics on every importer-api pod's "metrics" port. The operator turns this
+# into scrape config; Prometheus adds namespace and pod labels to each series.
+#
+# A PodMonitor rather than a ServiceMonitor, because the metrics port is
+# deliberately not part of the Service. The migration Job's pod has the same
+# app label but no metrics port, so it isn't scraped.
+#
+# Check it's picked up: Prometheus UI > Status > Targets > podMonitor/importer/importer-api
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: importer-api
+  namespace: importer
+  labels:
+    app: importer-api
+spec:
+  selector:
+    matchLabels:
+      app: importer-api
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

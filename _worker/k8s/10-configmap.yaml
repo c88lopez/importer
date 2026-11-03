@@ -1,8 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: importer-worker-config
-  namespace: importer-worker
-data:
-  # Send traces to Alloy, which forwards them to Tempo. Remove to turn tracing off.
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://alloy.monitoring.svc:4317"

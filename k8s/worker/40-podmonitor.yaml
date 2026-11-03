@@ -1,0 +1,17 @@
+# Tells Prometheus (kube-prometheus-stack) to scrape /metrics on every
+# importer-worker pod's "metrics" port.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: importer-worker
+  namespace: importer
+  labels:
+    app: importer-worker
+spec:
+  selector:
+    matchLabels:
+      app: importer-worker
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s
