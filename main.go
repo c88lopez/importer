@@ -11,8 +11,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Set at build time: go build -ldflags "-X main.version=1.0.0"
@@ -41,7 +39,7 @@ func main() {
 		slog.Error("DATABASE_URL is required")
 		os.Exit(1)
 	}
-	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	db, err := newDBPool(context.Background(), cfg.DatabaseURL)
 	if err != nil {
 		slog.Error("invalid DATABASE_URL", "err", err)
 		os.Exit(1)

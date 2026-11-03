@@ -156,7 +156,17 @@ curl http://192.168.68.57:30080/readyz
 
 ## Tracing
 
-Each request (except `/healthz` and `/readyz`) gets an OpenTelemetry span named after its route, like `GET /api/items/{id}`. Spans go over OTLP/gRPC to `OTEL_EXPORTER_OTLP_ENDPOINT`; in the cluster that's Alloy, which forwards them to Tempo (see `../monitoring-and-observability/k8s/`). With the variable unset, tracing is off.
+Each request (except `/healthz` and `/readyz`) gets an OpenTelemetry span named after its route, like `GET /api/items/{id}`. Database work done for the request shows up as child spans, so a trace shows where the time went:
+
+```
+GET /api/items           21.30 ms
+  pool.acquire             16.44 ms    waiting for a connection from the pool
+    connect                  16.10 ms  opening a new one (first requests only)
+  query SELECT              4.42 ms    the query, SQL in db.query.text
+    prepare SELECT            2.52 ms  first time this connection runs the query
+```
+
+Query parameters are not recorded. Database calls outside a request, like the `/readyz` ping, aren't traced. Spans go over OTLP/gRPC to `OTEL_EXPORTER_OTLP_ENDPOINT`; in the cluster that's Alloy, which forwards them to Tempo (see `../monitoring-and-observability/k8s/`). With the variable unset, tracing is off.
 
 Request log lines carry `trace_id` and `span_id`, so in Grafana a log line in Loki links to its trace in Tempo, and a trace links back to its logs.
 

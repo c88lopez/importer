@@ -1,5 +1,5 @@
 APP       := importer-api
-VERSION   ?= 1.2.0
+VERSION   ?= 1.3.0
 IMAGE     := ghcr.io/c88lopez/$(APP):$(VERSION)
 NAMESPACE := importer-api
 
@@ -7,8 +7,8 @@ NAMESPACE := importer-api
 
 ## --- local ---
 # Defaults point at the compose.yaml Postgres; set DATABASE_URL to override.
-export DATABASE_URL      ?= postgres://importer:importer@localhost:5432/importer?sslmode=disable
-export TEST_DATABASE_URL ?= postgres://importer:importer@localhost:5432/importer_test?sslmode=disable
+export DATABASE_URL      ?= postgres://importer:importer@localhost:5433/importer?sslmode=disable
+export TEST_DATABASE_URL ?= postgres://importer:importer@localhost:5433/importer_test?sslmode=disable
 
 db-up: ## start the local Postgres and wait until it accepts connections
 	docker compose up -d --wait postgres
@@ -36,7 +36,7 @@ migration: ## add an empty migration file: make migration NAME=add_items_owner
 	go run . migrate create $(NAME)
 
 ## --- kubernetes ---
-release: ## tag a version; CI builds and pushes it: make release VERSION=1.2.0
+release: ## tag a version; CI builds and pushes it: make release VERSION=1.3.0
 	git tag v$(VERSION)
 	git push origin v$(VERSION)
 
@@ -66,7 +66,7 @@ restart: ## recreate pods (e.g. after changing the ConfigMap)
 	kubectl -n $(NAMESPACE) rollout restart deployment/$(APP)
 	kubectl -n $(NAMESPACE) rollout status deployment/$(APP)
 
-rollout: migrate ## migrate, then switch to a version CI already pushed: make rollout VERSION=1.2.0
+rollout: migrate ## migrate, then switch to a version CI already pushed: make rollout VERSION=1.3.0
 	kubectl -n $(NAMESPACE) set image deployment/$(APP) $(APP)=$(IMAGE)
 	kubectl -n $(NAMESPACE) rollout status deployment/$(APP)
 

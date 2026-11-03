@@ -5,6 +5,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -37,6 +38,21 @@ type pgStore struct {
 
 func newPgStore(db *pgxpool.Pool) *pgStore {
 	return &pgStore{db: db}
+}
+
+// newDBPool opens a lazy connection pool that traces its work: inside a
+// request span, each query gets a child span ("query SELECT", with the SQL in
+// db.query.text but not the parameters), as does waiting for a connection
+// ("pool.acquire"), opening one ("connect") and preparing a statement the
+// first time a connection runs it ("prepare SELECT"). Calls outside a span,
+// like the /readyz ping, aren't traced.
+func newDBPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	cfg.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithQuerySpanNamePrefix())
+	return pgxpool.NewWithConfig(ctx, cfg)
 }
 
 const itemColumns = "id, name, kind, created_at"
