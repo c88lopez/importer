@@ -1,0 +1,16 @@
+# A database for `make test`, next to the real one on the cluster's Postgres.
+# The tests truncate tables, so they must never run against `app`.
+#
+# In k8s/dev/, not k8s/: it's for development, so `make deploy` doesn't apply
+# it; `make dev-setup` does. CloudNativePG creates the database and keeps it
+# if this resource is deleted (databaseReclaimPolicy defaults to retain).
+apiVersion: postgresql.cnpg.io/v1
+kind: Database
+metadata:
+  name: importer-worker-test
+  namespace: default
+spec:
+  cluster:
+    name: postgres
+  name: importer_worker_test
+  owner: app # the same user as the app, so its credentials work for tests
