@@ -33,7 +33,7 @@ type checkResult struct {
 
 // newCheckers builds a checker per dependency. Clients connect lazily, so the
 // app still starts when a dependency is down; the failure shows up in /readyz.
-func newCheckers(cfg config) ([]checker, func(), error) {
+func newCheckers(cfg config, db *pgxpool.Pool) ([]checker, func(), error) {
 	var closers []func()
 	cleanup := func() {
 		for _, c := range closers {
@@ -41,14 +41,10 @@ func newCheckers(cfg config) ([]checker, func(), error) {
 		}
 	}
 
+	// The pool is shared with the item store; main owns and closes it.
 	pg := checker{name: "postgres"}
-	if cfg.DatabaseURL != "" {
-		pool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
-		if err != nil {
-			return nil, nil, err
-		}
-		closers = append(closers, pool.Close)
-		pg.check = pool.Ping
+	if db != nil {
+		pg.check = db.Ping
 	}
 
 	rd := checker{name: "redis"}

@@ -79,10 +79,39 @@ Try it: point `DATABASE_URL` at a host that doesn't exist, then run `kubectl -n 
 
 ## Run locally
 
+Items are stored in Postgres. `compose.yaml` runs one locally (version 18, like the cluster), and the Makefile points `DATABASE_URL` at it unless you set your own.
+
 ```sh
+make db-up          # start Postgres (docker compose)
+make migrate-local  # create the tables
 make run
-curl localhost:8080/
+curl -XPOST localhost:8080/api/items -d '{"name":"latex","kind":"import"}'
+curl localhost:8080/api/items
+make test           # also runs the Postgres tests against the importer_test database
+make db-down
 ```
+
+## Database migrations
+
+Schema changes are SQL files in `migrations/`, applied in version order by [goose](https://github.com/pressly/goose). They're embedded in the binary, so each image carries the schema its code expects. goose records what it applied in the `goose_db_version` table.
+
+```sh
+make migration NAME=add_items_owner           # creates migrations/00002_add_items_owner.sql
+make migrate-local                             # apply pending ones
+make migrate-local MIGRATE=status
+make migrate-local MIGRATE=down                # roll back the latest one
+```
+
+In the cluster, `make deploy` and `make rollout` first run `make migrate`. That starts `k8s/jobs/migrate.yaml`, a Job that runs `importer-api migrate up` once with the `$(VERSION)` image, and waits for it. If the migration fails, the Job fails, its logs are printed, and nothing is deployed. A Postgres advisory lock stops two runs from applying the same migration at once.
+
+Rules that keep rolling updates safe:
+
+- **Old pods keep running against the new schema** until the rollout finishes, so a migration must work with both versions of the code. To rename or drop a column, add the new one first, ship code that uses it, and remove the old one in a later release.
+- **Never edit a migration that has been applied anywhere.** Add a new one instead.
+- **Roll forward in the cluster.** `down` is for local work.
+- Build indexes on big tables with `CREATE INDEX CONCURRENTLY` and `-- +goose NO TRANSACTION`.
+
+`go test ./...` checks that versions are sequential. With `TEST_DATABASE_URL` set (`make test` and CI set it), it also runs every migration up, down and up again.
 
 ## How the image is built
 
@@ -145,7 +174,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 make run
 for i in $(seq 6); do curl -s http://192.168.68.57:30080/ | grep -o '"pod":"[^"]*"'; done
 ```
 
-**See that state isn't shared.** POST an item, then list items a few times. Some requests hit the other pod and show an empty list. That's why real apps keep state in a database.
+**See that state is shared.** POST an item, then list items a few times. Requests hit different pods (check `/`), but every pod reads the same Postgres table, so the list is always the same. Before 1.2.0 items were kept in each pod's memory, and half the requests showed an empty list.
 
 **Self-healing.** Delete a pod and watch a new one replace it:
 ```sh
@@ -191,5 +220,4 @@ make undeploy
 
 - Package the manifests as a **Helm chart** (`helm create`), then compare it with the plain YAML.
 - Add an **Ingress** (for example, ingress-nginx) instead of NodePort.
-- Add a **Secret** and a Postgres StatefulSet so state survives pod restarts.
 - Push the image to a registry (GHCR or Docker Hub) and deploy with a GitOps tool like **Argo CD**.

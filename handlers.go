@@ -2,13 +2,16 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 )
 
-func newRouter(cfg config, s *store, ready *atomic.Bool, checks []checker) http.Handler {
+func newRouter(cfg config, s itemStore, ready *atomic.Bool, checks []checker) http.Handler {
 	mux := http.NewServeMux()
 
 	// Liveness: "is the process alive?" If this fails, k8s restarts the container.
@@ -37,7 +40,12 @@ func newRouter(cfg config, s *store, ready *atomic.Bool, checks []checker) http.
 	})
 
 	mux.HandleFunc("GET /api/items", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, http.StatusOK, s.list())
+		items, err := s.List(r.Context())
+		if err != nil {
+			writeStoreError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, items)
 	})
 
 	mux.HandleFunc("POST /api/items", func(w http.ResponseWriter, r *http.Request) {
@@ -58,21 +66,34 @@ func newRouter(cfg config, s *store, ready *atomic.Bool, checks []checker) http.
 			writeError(w, http.StatusBadRequest, `kind must be "import" or "export"`)
 			return
 		}
-		writeJSON(w, http.StatusCreated, s.create(body.Name, body.Kind))
+		it, err := s.Create(r.Context(), body.Name, body.Kind)
+		if err != nil {
+			writeStoreError(w, r, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, it)
 	})
 
 	mux.HandleFunc("GET /api/items/{id}", func(w http.ResponseWriter, r *http.Request) {
-		it, ok := s.get(r.PathValue("id"))
+		id, ok := itemID(w, r)
 		if !ok {
-			writeError(w, http.StatusNotFound, "item not found")
+			return
+		}
+		it, err := s.Get(r.Context(), id)
+		if err != nil {
+			writeStoreError(w, r, err)
 			return
 		}
 		writeJSON(w, http.StatusOK, it)
 	})
 
 	mux.HandleFunc("DELETE /api/items/{id}", func(w http.ResponseWriter, r *http.Request) {
-		if !s.delete(r.PathValue("id")) {
-			writeError(w, http.StatusNotFound, "item not found")
+		id, ok := itemID(w, r)
+		if !ok {
+			return
+		}
+		if err := s.Delete(r.Context(), id); err != nil {
+			writeStoreError(w, r, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -89,4 +110,27 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
+}
+
+// itemID parses the {id} path value. A non-numeric id can't exist, so it's a
+// 404 like any other unknown id.
+func itemID(w http.ResponseWriter, r *http.Request) (int64, bool) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "item not found")
+		return 0, false
+	}
+	return id, true
+}
+
+// writeStoreError maps a store error to a response. Anything but "not found"
+// is logged with its trace and returned as a bare 500, so database details
+// don't leak to clients.
+func writeStoreError(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, errNotFound) {
+		writeError(w, http.StatusNotFound, "item not found")
+		return
+	}
+	slog.ErrorContext(r.Context(), "store error", "method", r.Method, "path", r.URL.Path, "err", err)
+	writeError(w, http.StatusInternalServerError, "internal error")
 }
