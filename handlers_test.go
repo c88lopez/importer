@@ -12,7 +12,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	var ready atomic.Bool
 	ready.Store(true)
-	srv := httptest.NewServer(newRouter(loadConfig(), newStore(), &ready, nil))
+	srv := httptest.NewServer(newRouter(loadConfig(), newMemStore(), &ready, nil))
 	t.Cleanup(srv.Close)
 	return srv
 }

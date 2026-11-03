@@ -21,6 +21,22 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # A throwaway Postgres so the store and migration tests run here too
+    # (they skip without TEST_DATABASE_URL).
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: importer
+          POSTGRES_PASSWORD: importer
+          POSTGRES_DB: importer_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U importer -d importer_test"
+          --health-interval 2s --health-timeout 2s --health-retries 15
+    env:
+      TEST_DATABASE_URL: postgres://importer:importer@localhost:5432/importer_test?sslmode=disable
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6

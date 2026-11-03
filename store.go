@@ -1,64 +1,89 @@
 package main
 
 import (
-	"sort"
-	"strconv"
-	"sync"
+	"context"
+	"errors"
 	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Item struct {
-	ID        string    `json:"id"`
+	// ",string" keeps the JSON id a string ("1"), as it was before the
+	// database, so clients don't break. It's a BIGINT in Postgres.
+	ID        int64     `json:"id,string"`
 	Name      string    `json:"name"`
 	Kind      string    `json:"kind"` // "import" or "export"
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// store is in-memory on purpose: each pod has its own copy, which makes it
-// easy to see that replicas don't share state (a good k8s lesson).
-type store struct {
-	mu     sync.RWMutex
-	items  map[string]Item
-	nextID int
+var errNotFound = errors.New("not found")
+
+// itemStore is what the handlers need. pgStore is the real one; tests use
+// memStore. Get and Delete return errNotFound for an unknown id.
+type itemStore interface {
+	List(ctx context.Context) ([]Item, error)
+	Get(ctx context.Context, id int64) (Item, error)
+	Create(ctx context.Context, name, kind string) (Item, error)
+	Delete(ctx context.Context, id int64) error
 }
 
-func newStore() *store {
-	return &store{items: make(map[string]Item), nextID: 1}
+// pgStore keeps items in Postgres, so every pod sees the same data. The
+// schema comes from migrations/, applied by `importer-api migrate up`.
+type pgStore struct {
+	db *pgxpool.Pool
 }
 
-func (s *store) list() []Item {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	out := make([]Item, 0, len(s.items))
-	for _, it := range s.items {
-		out = append(out, it)
+func newPgStore(db *pgxpool.Pool) *pgStore {
+	return &pgStore{db: db}
+}
+
+const itemColumns = "id, name, kind, created_at"
+
+func (s *pgStore) List(ctx context.Context) ([]Item, error) {
+	rows, err := s.db.Query(ctx, "SELECT "+itemColumns+" FROM items ORDER BY created_at, id")
+	if err != nil {
+		return nil, err
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
-	return out
+	return pgx.CollectRows(rows, scanItem)
 }
 
-func (s *store) get(id string) (Item, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	it, ok := s.items[id]
-	return it, ok
+func (s *pgStore) Get(ctx context.Context, id int64) (Item, error) {
+	rows, _ := s.db.Query(ctx, "SELECT "+itemColumns+" FROM items WHERE id = $1", id)
+	return collectOneItem(rows)
 }
 
-func (s *store) create(name, kind string) Item {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	it := Item{ID: strconv.Itoa(s.nextID), Name: name, Kind: kind, CreatedAt: time.Now().UTC()}
-	s.items[it.ID] = it
-	s.nextID++
-	return it
+func (s *pgStore) Create(ctx context.Context, name, kind string) (Item, error) {
+	rows, _ := s.db.Query(ctx,
+		"INSERT INTO items (name, kind) VALUES ($1, $2) RETURNING "+itemColumns, name, kind)
+	return collectOneItem(rows)
 }
 
-func (s *store) delete(id string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.items[id]; !ok {
-		return false
+func (s *pgStore) Delete(ctx context.Context, id int64) error {
+	tag, err := s.db.Exec(ctx, "DELETE FROM items WHERE id = $1", id)
+	if err != nil {
+		return err
 	}
-	delete(s.items, id)
-	return true
+	if tag.RowsAffected() == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+func scanItem(row pgx.CollectableRow) (Item, error) {
+	var it Item
+	err := row.Scan(&it.ID, &it.Name, &it.Kind, &it.CreatedAt)
+	it.CreatedAt = it.CreatedAt.UTC()
+	return it, err
+}
+
+// collectOneItem reads a single row (a Query error surfaces here too) and
+// maps "no rows" to errNotFound.
+func collectOneItem(rows pgx.Rows) (Item, error) {
+	it, err := pgx.CollectExactlyOneRow(rows, scanItem)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Item{}, errNotFound
+	}
+	return it, err
 }

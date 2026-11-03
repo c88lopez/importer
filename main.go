@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // Set at build time: go build -ldflags "-X main.version=1.0.0"
@@ -20,6 +22,11 @@ func main() {
 	logger := slog.New(traceLogHandler{slog.NewJSONHandler(os.Stdout, nil)})
 	slog.SetDefault(logger)
 
+	// `importer-api migrate ...` runs migrations instead of the server (see migrate.go).
+	if len(os.Args) > 1 && os.Args[1] == "migrate" {
+		os.Exit(migrateMain(os.Args[2:]))
+	}
+
 	cfg := loadConfig()
 
 	shutdownTracing, err := setupTracing(context.Background())
@@ -28,7 +35,20 @@ func main() {
 		os.Exit(1)
 	}
 
-	checks, closeChecks, err := newCheckers(cfg)
+	// Items live in Postgres, so the API can't run without it. The pool
+	// connects lazily: a database that's down shows up in /readyz, not here.
+	if cfg.DatabaseURL == "" {
+		slog.Error("DATABASE_URL is required")
+		os.Exit(1)
+	}
+	db, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	if err != nil {
+		slog.Error("invalid DATABASE_URL", "err", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	checks, closeChecks, err := newCheckers(cfg, db)
 	if err != nil {
 		slog.Error("invalid dependency config", "err", err)
 		os.Exit(1)
@@ -41,7 +61,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           traceRequests(logRequests(newRouter(cfg, newStore(), &ready, checks))),
+		Handler:           traceRequests(logRequests(newRouter(cfg, newPgStore(db), &ready, checks))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -79,7 +99,8 @@ type config struct {
 	Message string
 	Env     string
 
-	// Dependency URLs. Leave one empty to skip its health check.
+	// Dependency URLs. DatabaseURL is required; leave the others empty to
+	// skip their health check.
 	DatabaseURL string // postgres://user:pass@host:5432/db
 	RedisURL    string // redis://:pass@host:6379/0
 	RabbitMQURL string // amqp://user:pass@host:5672/
