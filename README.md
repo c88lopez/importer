@@ -1,11 +1,32 @@
-# importer-api
+# importer
 
-A small Go REST API (standard library only) for learning how an app gets from source code to running in Kubernetes.
+Two Go services, for learning how apps get from source code to running in Kubernetes:
+
+- **importer-api**: a REST API for items (standard library HTTP). Creating an item announces it on RabbitMQ.
+- **importer-worker**: consumes those events and processes the items. See [cmd/worker/README.md](cmd/worker/README.md).
+
+They share a Postgres database, its schema, the event contract and a version, so they live in one repo and one Go module:
+
+```
+cmd/api/              importer-api: wiring (config, servers, shutdown); `importer-api migrate` runs migrations
+cmd/worker/           importer-worker: wiring
+internal/api/         HTTP routes, health checks, middleware
+internal/worker/      RabbitMQ consumer and the item processor
+internal/items/       the Item model and its Postgres store, used by both
+internal/outbox/      transactional outbox and its relay to RabbitMQ
+internal/events/      the RabbitMQ contract: exchange, routing keys, trace headers
+internal/database/    connection pool and migrations (dbtest: a test database for tests)
+internal/telemetry/   tracing, metrics and logs, set up the same way in both
+migrations/           the schema, embedded in importer-api
+k8s/                  the "importer" namespace: api/, worker/, jobs/ (migrations), dev/, dashboards/
+```
+
+`internal/` packages can only be imported from this module, so the split stays private to the repo.
 
 ## The path from code to cluster
 
 ```
-main.go ──go build──▶ binary ──docker build──▶ image ──kubectl apply──▶ Deployment ──▶ ReplicaSet ──▶ Pods
+cmd/api ──go build──▶ binary ──docker build──▶ image ──kubectl apply──▶ Deployment ──▶ ReplicaSet ──▶ Pods
                                                                          Service ──routes traffic──▶ ready Pods
 ```
 
@@ -58,15 +79,7 @@ Setting it to an empty string makes nothing critical. An unknown name, like `pos
   "rabbitmq":{"status":"skipped","critical":true}}}
 ```
 
-In the cluster, the URLs contain passwords, so they come from a Secret instead of the ConfigMap. The Deployment marks it `optional`, so pods start without it:
-
-```sh
-kubectl -n importer-api create secret generic importer-api-deps \
-  --from-literal=DATABASE_URL='postgres://user:pass@postgres:5432/db' \
-  --from-literal=REDIS_URL='redis://redis:6379/0' \
-  --from-literal=RABBITMQ_URL='amqp://guest:guest@rabbitmq:5672/'
-make restart
-```
+In the cluster, the URLs contain passwords, so they come from the `importer-api-deps` Secret instead of the ConfigMap (`make secrets` creates it).
 
 ### Why the checks are in readiness, not liveness
 
@@ -75,15 +88,15 @@ make restart
 
 Critical vs. non-critical is the same idea one level down: only take the pod out of rotation for something it truly can't work without. If the cache is down, it's usually better to serve slower than not at all.
 
-Try it: point `DATABASE_URL` at a host that doesn't exist, then run `kubectl -n importer-api get pods -w`. The pods show `0/1 READY` but `RESTARTS` stays at 0, and `curl http://192.168.68.57:30080/` fails because the Service has no ready pods behind it. `kubectl -n importer-api get endpointslices` shows the pod IPs marked not ready.
+Try it: point `DATABASE_URL` at a host that doesn't exist, then run `kubectl -n importer get pods -w`. The pods show `0/1 READY` but `RESTARTS` stays at 0, and `curl http://192.168.68.57:30080/` fails because the Service has no ready pods behind it. `kubectl -n importer get endpointslices` shows the pod IPs marked not ready.
 
 ## Run locally
 
-There are no local copies of the dependencies: `make run` and `make test` use the cluster's Postgres and RabbitMQ through `kubectl port-forward`. The Makefile reads the credentials from their Secrets in `default`.
+There are no local copies of the dependencies: `make run-api`, `make run-worker` and `make test` use the cluster's Postgres and RabbitMQ through `kubectl port-forward`. The Makefile reads the credentials from their Secrets in `default`.
 
 | | Postgres | RabbitMQ |
 | --- | --- | --- |
-| `make run`, `make migrate-local` | `app`, the real database | vhost `/`, the real exchange |
+| `make run-api`, `make run-worker`, `make migrate-local` | `app`, the real database | vhost `/`, the real exchange |
 | `make test` | `importer_test` | vhost `importer-test` |
 
 The tests truncate tables and create and delete exchanges, so they get their own database and vhost. `k8s/dev/test-database.yaml` declares the database as a CloudNativePG `Database` owned by the `app` user.
@@ -91,13 +104,14 @@ The tests truncate tables and create and delete exchanges, so they get their own
 ```sh
 make dev-setup      # once: create importer_test and the importer-test vhost
 make tunnel         # in its own terminal: Postgres on 5433, RabbitMQ on 5673 (UI on 15673)
-make run
+make run-api        # :8080, metrics on :9464
+make run-worker     # optional, in another terminal: probes and metrics on :9465
 curl -XPOST localhost:8080/api/items -d '{"name":"latex","kind":"import"}'
 curl localhost:8080/api/items
-make test
+make test           # -p 1: packages share the test database
 ```
 
-Locally created items are real: they're in the same table as the cluster's, and the cluster's importer-worker processes them. `make migrate-local` applies migrations to the real database, so a migration you're still writing is live before its release. Prefer `make migrate`, which runs the released image as a Job.
+Locally created items are real: they're in the same table as the cluster's, and the cluster's importer-worker processes them (unless your local worker gets there first). `make migrate-local` applies migrations to the real database, so a migration you're still writing is live before its release. Prefer `make migrate`, which runs the released image as a Job.
 
 RabbitMQ's management UI is at http://localhost:15673, with the credentials in the `rabbitmq-default-user` Secret.
 
@@ -108,7 +122,7 @@ CI can't reach the cluster, so it runs the same tests against throwaway Postgres
 Schema changes are SQL files in `migrations/`, applied in version order by [goose](https://github.com/pressly/goose). They're embedded in the binary, so each image carries the schema its code expects. goose records what it applied in the `goose_db_version` table.
 
 ```sh
-make migration NAME=add_items_owner           # creates migrations/00002_add_items_owner.sql
+make migration NAME=add_items_owner           # creates migrations/00003_add_items_owner.sql
 make migrate-local                             # apply pending ones
 make migrate-local MIGRATE=status
 make migrate-local MIGRATE=down                # roll back the latest one
@@ -127,10 +141,11 @@ Rules that keep rolling updates safe:
 
 ## How the image is built
 
-Pushing to GitHub runs `.github/workflows/build.yml`:
+Pushing to GitHub runs `.github/workflows/build.yml`. It tests once, then builds one image per service from the same `Dockerfile`, with the `APP` build argument picking the binary:
 
 ```
 git push ──▶ GitHub Actions: go vet + go test ──▶ docker build (amd64 + arm64) ──▶ ghcr.io/c88lopez/importer-api
+                                                                              └─▶ ghcr.io/c88lopez/importer-worker
                                                                                         │
 kubectl apply ──▶ Deployment ──▶ kubelet on the node pulls the image ◀──────────────────┘
 ```
@@ -141,30 +156,27 @@ kubectl apply ──▶ Deployment ──▶ kubelet on the node pulls the image
 | A tag `v1.2.3`      | `1.2.3`, `1.2`, `latest`      |
 | A pull request      | Built and tested, not pushed  |
 
-The Deployment pins an exact version (`1.0.0`), so the cluster runs only what you chose. Ship a new version with:
+Both services share one version. The Deployments pin it exactly, so the cluster runs only what you chose. Ship a new version with:
 
 ```sh
-make release VERSION=1.1.0   # pushes tag v1.1.0; wait for the Actions run to finish
-make rollout VERSION=1.1.0   # points the Deployment at the new image
+make release VERSION=1.7.0   # pushes tag v1.7.0, and CI builds both images; wait for the Actions run to finish
+make rollout VERSION=1.7.0   # migrates, then points both Deployments at the new images
 ```
 
 ## Deploy
 
 The cluster is Docker Desktop on another PC (`192.168.68.57`); `kubectl config current-context` prints `docker-desktop`. Postgres, RabbitMQ and Redis already run in its `default` namespace.
 
+Both services run in the `importer` namespace. Each has its own Secret, with only the connection URLs it uses.
+
 ```sh
-kubectl apply -f k8s/00-namespace.yaml -f k8s/10-configmap.yaml
-
-# Copy the dependency connection URLs from the existing Secrets in `default`
-kubectl -n importer-api create secret generic importer-api-deps \
-  --from-literal=DATABASE_URL="$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
-  --from-literal=RABBITMQ_URL="$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
-  --from-literal=REDIS_URL="redis://:$(kubectl -n default get secret redis-secret -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d)@redis.default.svc.cluster.local:6379/0"
-
-make deploy
+make secrets        # once: copies the connection URLs from the Secrets in `default`
+make deploy         # migration Job, then the API, the worker and the dashboard
 make status
 curl http://192.168.68.57:30080/readyz
 ```
+
+`make undeploy` removes both services, but keeps the namespace and its Secrets.
 
 ## Tracing
 
@@ -182,21 +194,21 @@ Query parameters are not recorded. Database calls outside a request, like the `/
 
 Request log lines carry `trace_id` and `span_id`, so in Grafana a log line in Loki links to its trace in Tempo, and a trace links back to its logs.
 
-To send traces from `make run` to the cluster:
+To send traces from `make run-api` to the cluster:
 
 ```sh
 kubectl -n monitoring port-forward svc/alloy 4317:4317 &
-OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 make run
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 make run-api
 ```
 
 ## Events and the outbox
 
-Creating an item publishes an `item.created` event, which [importer-worker](../importer-worker) consumes to process the item and set its `status` from `pending` to `done`.
+Creating an item publishes an `item.created` event, which importer-worker ([cmd/worker](cmd/worker/README.md)) consumes to process the item and set its `status` from `pending` to `done`.
 
 ```
 POST /api/items ─► one transaction: INSERT items + INSERT outbox
                                                       │
-          relay (outbox.go, in every pod) ◄───────────┘ polls every 1s, or right after a create
+          relay (internal/outbox, in every API pod) ◄───────────┘ polls every 1s, or right after a create
             │ publish with confirms, then DELETE the row
             ▼
   exchange "importer" (topic) ─► routing key item.created ─► queues the consumers declare
@@ -217,7 +229,7 @@ The `00002` migration also queued an `item.created` for every existing item, so 
 
 ## Metrics and dashboard
 
-Each pod serves Prometheus metrics on port 9464 (`/metrics`), separate from the API port so they aren't exposed through the NodePort. `k8s/40-podmonitor.yaml` makes Prometheus scrape them every 15s. The main series:
+Each pod serves Prometheus metrics on port 9464 (`/metrics`), separate from the API port so they aren't exposed through the NodePort. `k8s/api/40-podmonitor.yaml` makes Prometheus scrape them every 15s. The main series:
 
 | Metric | What |
 | --- | --- |
@@ -231,7 +243,7 @@ Each pod serves Prometheus metrics on port 9464 (`/metrics`), separate from the 
 The **Importer API** dashboard in Grafana (folder *Services*) shows requests, errors, latency, database calls, the connection pool, pod CPU and memory against their limits, restarts, version history, recent traces and logs. Deploy markers come from each pod's `server starting` log line. Its source is `k8s/dashboards/importer-api.json`. `make deploy` loads it, and `make dashboard` reloads it on its own, with no release needed. To change it, edit in Grafana, export the JSON (Share > Export), save it over the file and commit.
 
 ```sh
-curl -s localhost:9464/metrics | grep http_server_request_duration_seconds_count   # with make run
+curl -s localhost:9464/metrics | grep http_server_request_duration_seconds_count   # with make run-api
 ```
 
 ## Experiments to try
@@ -245,36 +257,36 @@ for i in $(seq 6); do curl -s http://192.168.68.57:30080/ | grep -o '"pod":"[^"]
 
 **Self-healing.** Delete a pod and watch a new one replace it:
 ```sh
-kubectl -n importer-api get pods -w        # in one terminal
-kubectl -n importer-api delete pod <name>  # in another
+kubectl -n importer get pods -w        # in one terminal
+kubectl -n importer delete pod <name>  # in another
 ```
 
 **Scale.**
 ```sh
-kubectl -n importer-api scale deployment/importer-api --replicas=4
+kubectl -n importer scale deployment/importer-api --replicas=4
 ```
 
-**Change config.** Edit `WELCOME_MESSAGE` in `k8s/10-configmap.yaml`, then:
+**Change config.** Edit `WELCOME_MESSAGE` in `k8s/api/10-configmap.yaml`, then:
 ```sh
-kubectl apply -f k8s/ && make restart
+kubectl apply -f k8s/api/ && make restart
 ```
 Pods read env vars only at startup, so they need a restart to pick up the change.
 
 **Rolling update.** Ship a "new version" and watch old pods drain while new ones come up:
 ```sh
-make rollout VERSION=1.1.0
-kubectl -n importer-api rollout history deployment/importer-api
-kubectl -n importer-api rollout undo deployment/importer-api   # roll back
+make rollout VERSION=1.7.0
+kubectl -n importer rollout history deployment/importer-api
+kubectl -n importer rollout undo deployment/importer-api   # roll back
 ```
-`make rollout` changes the image in the cluster only. Update `k8s/20-deployment.yaml` too, or the next `kubectl apply` puts the old version back.
+`make rollout` changes the image in the cluster only. Update the image tags in `k8s/api/20-deployment.yaml` and `k8s/worker/20-deployment.yaml` too, or the next `kubectl apply` puts the old version back.
 
-**Break a probe.** Change `readinessProbe.path` to `/nope` and apply. The new pod never becomes Ready, and because of `maxUnavailable: 0` the old pods keep serving. Check `kubectl -n importer-api describe pod <name>` to see the events.
+**Break a probe.** Change `readinessProbe.path` to `/nope` and apply. The new pod never becomes Ready, and because of `maxUnavailable: 0` the old pods keep serving. Check `kubectl -n importer describe pod <name>` to see the events.
 
 **Inspect.**
 ```sh
-make logs
-kubectl -n importer-api describe deployment importer-api
-kubectl -n importer-api get events --sort-by=.lastTimestamp
+make logs            # the API; make logs APP=worker for the worker
+kubectl -n importer describe deployment importer-api
+kubectl -n importer get events --sort-by=.lastTimestamp
 ```
 
 ## Clean up

@@ -29,10 +29,10 @@
           "uid": "prometheus"
         },
         "query": {
-          "query": "label_values(kube_pod_container_info{namespace=\"importer-api\", container=\"importer-api\"}, pod)",
+          "query": "label_values(kube_pod_container_info{namespace=\"importer\", container=\"importer-api\"}, pod)",
           "refId": "pods"
         },
-        "definition": "label_values(kube_pod_container_info{namespace=\"importer-api\", container=\"importer-api\"}, pod)",
+        "definition": "label_values(kube_pod_container_info{namespace=\"importer\", container=\"importer-api\"}, pod)",
         "refresh": 2,
         "multi": true,
         "includeAll": true,
@@ -82,10 +82,10 @@
         },
         "enable": true,
         "iconColor": "blue",
-        "expr": "{namespace=\"importer-api\", container=\"importer-api\"} |= \"server starting\" | json",
+        "expr": "{namespace=\"importer\", container=\"importer-api\"} |= \"server starting\" | json",
         "target": {
           "refId": "Anno",
-          "expr": "{namespace=\"importer-api\", container=\"importer-api\"} |= \"server starting\" | json"
+          "expr": "{namespace=\"importer\", container=\"importer-api\"} |= \"server starting\" | json"
         },
         "titleFormat": "{{version}} started",
         "textFormat": "{{pod}}",
@@ -99,10 +99,10 @@
         },
         "enable": true,
         "iconColor": "purple",
-        "expr": "{namespace=\"importer-api\", container=\"migrate\"} |= \"database is up to date\" | json",
+        "expr": "{namespace=\"importer\", container=\"migrate\"} |= \"database is up to date\" | json",
         "target": {
           "refId": "Anno",
-          "expr": "{namespace=\"importer-api\", container=\"migrate\"} |= \"database is up to date\" | json"
+          "expr": "{namespace=\"importer\", container=\"migrate\"} |= \"database is up to date\" | json"
         },
         "titleFormat": "Migrations: schema version {{version}}",
         "textFormat": "{{applied}} applied"
@@ -145,7 +145,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count by (version) (label_replace(kube_pod_container_info{namespace=\"importer-api\", container=\"importer-api\"}, \"version\", \"$1\", \"image\", \".*:([^:]+)$\"))",
+          "expr": "count by (version) (label_replace(kube_pod_container_info{namespace=\"importer\", container=\"importer-api\"}, \"version\", \"$1\", \"image\", \".*:([^:]+)$\"))",
           "legendFormat": "{{version}}",
           "instant": true,
           "range": false
@@ -208,7 +208,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(kube_deployment_status_replicas_available{namespace=\"importer-api\", deployment=\"importer-api\"})",
+          "expr": "sum(kube_deployment_status_replicas_available{namespace=\"importer\", deployment=\"importer-api\"})",
           "legendFormat": "__auto",
           "instant": true,
           "range": false
@@ -276,7 +276,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(http_server_request_duration_seconds_count{namespace=\"importer-api\", pod=~\"$pod\"}[$__range]))",
+          "expr": "sum(increase(http_server_request_duration_seconds_count{namespace=\"importer\", pod=~\"$pod\"}[$__range]))",
           "legendFormat": "__auto",
           "instant": true,
           "range": false
@@ -340,7 +340,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(http_server_request_duration_seconds_count{namespace=\"importer-api\", pod=~\"$pod\", http_response_status_code=~\"5..\"}[$__range])) or vector(0)",
+          "expr": "sum(increase(http_server_request_duration_seconds_count{namespace=\"importer\", pod=~\"$pod\", http_response_status_code=~\"5..\"}[$__range])) or vector(0)",
           "legendFormat": "__auto",
           "instant": true,
           "range": false
@@ -408,7 +408,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(http_server_request_duration_seconds_count{namespace=\"importer-api\", pod=~\"$pod\", http_response_status_code=~\"4..\"}[$__range])) or vector(0)",
+          "expr": "sum(increase(http_server_request_duration_seconds_count{namespace=\"importer\", pod=~\"$pod\", http_response_status_code=~\"4..\"}[$__range])) or vector(0)",
           "legendFormat": "__auto",
           "instant": true,
           "range": false
@@ -476,7 +476,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{namespace=\"importer-api\", pod=~\"$pod\"}[$__range])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{namespace=\"importer\", pod=~\"$pod\"}[$__range])))",
           "legendFormat": "__auto",
           "instant": true,
           "range": false
@@ -540,7 +540,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"importer-api\", container=\"importer-api\"}[$__range])) or vector(0)",
+          "expr": "sum(increase(kube_pod_container_status_restarts_total{namespace=\"importer\", container=\"importer-api\"}[$__range])) or vector(0)",
           "legendFormat": "__auto",
           "instant": true,
           "range": false
@@ -621,7 +621,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (http_request_method, http_route, http_response_status_code) (rate(http_server_request_duration_seconds_count{namespace=\"importer-api\", pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum by (http_request_method, http_route, http_response_status_code) (rate(http_server_request_duration_seconds_count{namespace=\"importer\", pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "{{http_request_method}} {{http_route}} {{http_response_status_code}}"
         }
       ],
@@ -684,7 +684,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (http_response_status_code, http_route) (rate(http_server_request_duration_seconds_count{namespace=\"importer-api\", pod=~\"$pod\", http_response_status_code=~\"4..|5..\"}[$__rate_interval]))",
+          "expr": "sum by (http_response_status_code, http_route) (rate(http_server_request_duration_seconds_count{namespace=\"importer\", pod=~\"$pod\", http_response_status_code=~\"4..|5..\"}[$__rate_interval]))",
           "legendFormat": "{{http_response_status_code}} {{http_route}}"
         }
       ],
@@ -778,7 +778,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_seconds_bucket{namespace=\"importer-api\", pod=~\"$pod\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(http_server_request_duration_seconds_bucket{namespace=\"importer\", pod=~\"$pod\"}[$__rate_interval])))",
           "legendFormat": "p50"
         },
         {
@@ -787,7 +787,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{namespace=\"importer-api\", pod=~\"$pod\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{namespace=\"importer\", pod=~\"$pod\"}[$__rate_interval])))",
           "legendFormat": "p95"
         },
         {
@@ -796,7 +796,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{namespace=\"importer-api\", pod=~\"$pod\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{namespace=\"importer\", pod=~\"$pod\"}[$__rate_interval])))",
           "legendFormat": "p99"
         }
       ],
@@ -859,7 +859,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, http_request_method, http_route) (rate(http_server_request_duration_seconds_bucket{namespace=\"importer-api\", pod=~\"$pod\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, http_request_method, http_route) (rate(http_server_request_duration_seconds_bucket{namespace=\"importer\", pod=~\"$pod\"}[$__rate_interval])))",
           "legendFormat": "{{http_request_method}} {{http_route}}"
         }
       ],
@@ -969,7 +969,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, pgx_operation_type) (rate(db_client_operation_duration_seconds_bucket{namespace=\"importer-api\", pod=~\"$pod\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, pgx_operation_type) (rate(db_client_operation_duration_seconds_bucket{namespace=\"importer\", pod=~\"$pod\"}[$__rate_interval])))",
           "legendFormat": "{{pgx_operation_type}}"
         }
       ],
@@ -1032,7 +1032,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pgx_operation_type) (rate(db_client_operation_duration_seconds_count{namespace=\"importer-api\", pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum by (pgx_operation_type) (rate(db_client_operation_duration_seconds_count{namespace=\"importer\", pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "{{pgx_operation_type}}"
         },
         {
@@ -1041,7 +1041,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pgx_operation_type) (rate(db_client_operation_errors_total{namespace=\"importer-api\", pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum by (pgx_operation_type) (rate(db_client_operation_errors_total{namespace=\"importer\", pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "{{pgx_operation_type}} errors"
         }
       ],
@@ -1120,7 +1120,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pod) (pgxpool_acquired_connections{namespace=\"importer-api\", pod=~\"$pod\"})",
+          "expr": "sum by (pod) (pgxpool_acquired_connections{namespace=\"importer\", pod=~\"$pod\"})",
           "legendFormat": "{{pod}} in use"
         },
         {
@@ -1129,7 +1129,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pod) (pgxpool_idle_connections{namespace=\"importer-api\", pod=~\"$pod\"})",
+          "expr": "sum by (pod) (pgxpool_idle_connections{namespace=\"importer\", pod=~\"$pod\"})",
           "legendFormat": "{{pod}} idle"
         },
         {
@@ -1138,7 +1138,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(pgxpool_max_connections{namespace=\"importer-api\", pod=~\"$pod\"})",
+          "expr": "max(pgxpool_max_connections{namespace=\"importer\", pod=~\"$pod\"})",
           "legendFormat": "limit"
         }
       ],
@@ -1244,7 +1244,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"importer-api\", container=\"importer-api\", pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"importer\", container=\"importer-api\", pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "{{pod}}"
         },
         {
@@ -1253,7 +1253,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(kube_pod_container_resource_limits{namespace=\"importer-api\", container=\"importer-api\", resource=\"cpu\"})",
+          "expr": "max(kube_pod_container_resource_limits{namespace=\"importer\", container=\"importer-api\", resource=\"cpu\"})",
           "legendFormat": "limit"
         }
       ],
@@ -1346,7 +1346,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"importer-api\", container=\"importer-api\", pod=~\"$pod\"})",
+          "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"importer\", container=\"importer-api\", pod=~\"$pod\"})",
           "legendFormat": "{{pod}}"
         },
         {
@@ -1355,7 +1355,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "max(kube_pod_container_resource_limits{namespace=\"importer-api\", container=\"importer-api\", resource=\"memory\"})",
+          "expr": "max(kube_pod_container_resource_limits{namespace=\"importer\", container=\"importer-api\", resource=\"memory\"})",
           "legendFormat": "limit"
         }
       ],
@@ -1448,7 +1448,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"importer-api\", container=\"importer-api\", pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"importer\", container=\"importer-api\", pod=~\"$pod\"}[$__rate_interval]))",
           "legendFormat": "{{pod}}"
         }
       ],
@@ -1524,7 +1524,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "count by (version) (label_replace(kube_pod_container_info{namespace=\"importer-api\", container=\"importer-api\"}, \"version\", \"$1\", \"image\", \".*:([^:]+)$\"))",
+          "expr": "count by (version) (label_replace(kube_pod_container_info{namespace=\"importer\", container=\"importer-api\"}, \"version\", \"$1\", \"image\", \".*:([^:]+)$\"))",
           "legendFormat": "{{version}}"
         }
       ],
@@ -1597,7 +1597,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{namespace=\"importer-api\", container=\"importer-api\"} |= \"server starting\" | json | line_format \"{{.version}}  {{.pod}}\"",
+          "expr": "{namespace=\"importer\", container=\"importer-api\"} |= \"server starting\" | json | line_format \"{{.version}}  {{.pod}}\"",
           "queryType": "range"
         }
       ],
@@ -1654,7 +1654,7 @@
           },
           "queryType": "range",
           "legendFormat": "{{level}}",
-          "expr": "sum by (level) (rate({namespace=\"importer-api\", container=\"importer-api\", pod=~\"$pod\"} | json level=\"level\" [$__auto]))"
+          "expr": "sum by (level) (rate({namespace=\"importer\", container=\"importer-api\", pod=~\"$pod\"} | json level=\"level\" [$__auto]))"
         }
       ],
       "fieldConfig": {
@@ -1762,7 +1762,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{namespace=\"importer-api\", container=\"importer-api\", pod=~\"$pod\"} |~ `\"level\":\"(ERROR|WARN)\"`",
+          "expr": "{namespace=\"importer\", container=\"importer-api\", pod=~\"$pod\"} |~ `\"level\":\"(ERROR|WARN)\"`",
           "queryType": "range"
         }
       ],
@@ -1804,7 +1804,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{namespace=\"importer-api\", container=\"importer-api\", pod=~\"$pod\"} |= `$search`",
+          "expr": "{namespace=\"importer\", container=\"importer-api\", pod=~\"$pod\"} |= `$search`",
           "queryType": "range"
         }
       ],
@@ -1846,7 +1846,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{namespace=\"importer-api\", container=\"migrate\"}",
+          "expr": "{namespace=\"importer\", container=\"migrate\"}",
           "queryType": "range"
         }
       ],
