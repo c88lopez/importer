@@ -37,7 +37,7 @@ POST {{host}}/api/items
 Content-Type: application/json
 
 {
-  "name": "potato chips",
+  "name": "milanesa",
   "kind": "export"
 }
 
@@ -45,7 +45,7 @@ Content-Type: application/json
 GET {{host}}/api/items/{{itemId}}
 
 ### Delete the item created above (204; running it again gives 404)
-DELETE {{host}}/api/items/{{itemId}}
+DELETE {{host}}/api/items/3
 
 ### Get an id that doesn't exist (404)
 GET {{host}}/api/items/999999
