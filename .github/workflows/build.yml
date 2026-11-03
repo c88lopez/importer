@@ -56,6 +56,8 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     strategy:
+      # Build each image even if the other fails, so one problem doesn't hide another.
+      fail-fast: false
       matrix:
         app: [api, worker]
     env:
