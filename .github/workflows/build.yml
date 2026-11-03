@@ -21,8 +21,8 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # A throwaway Postgres so the store and migration tests run here too
-    # (they skip without TEST_DATABASE_URL).
+    # Throwaway Postgres and RabbitMQ so the store, migration and outbox
+    # tests run here too (they skip without TEST_DATABASE_URL/TEST_RABBITMQ_URL).
     services:
       postgres:
         image: postgres:18-alpine
@@ -35,8 +35,16 @@ jobs:
         options: >-
           --health-cmd "pg_isready -U importer -d importer_test"
           --health-interval 2s --health-timeout 2s --health-retries 15
+      rabbitmq:
+        image: rabbitmq:4.3-alpine
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q check_port_connectivity"
+          --health-interval 5s --health-timeout 5s --health-retries 20
     env:
       TEST_DATABASE_URL: postgres://importer:importer@localhost:5432/importer_test?sslmode=disable
+      TEST_RABBITMQ_URL: amqp://guest:guest@localhost:5672/
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-go@v6

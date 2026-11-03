@@ -59,6 +59,26 @@ func main() {
 		os.Exit(1)
 	}
 
+	// New items are announced on RabbitMQ (see outbox.go), so it's required
+	// too. Like the pool, the relay connects in the background and retries.
+	if cfg.RabbitMQURL == "" {
+		slog.Error("RABBITMQ_URL is required")
+		os.Exit(1)
+	}
+	relay, err := newOutboxRelay(db, cfg.RabbitMQURL)
+	if err != nil {
+		slog.Error("outbox relay setup failed", "err", err)
+		os.Exit(1)
+	}
+	store := newPgStore(db)
+	store.outboxWritten = relay.Notify
+	relayCtx, stopRelay := context.WithCancel(context.Background())
+	relayDone := make(chan struct{})
+	go func() {
+		defer close(relayDone)
+		relay.Run(relayCtx)
+	}()
+
 	checks, closeChecks, err := newCheckers(cfg, db)
 	if err != nil {
 		slog.Error("invalid dependency config", "err", err)
@@ -72,7 +92,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           traceRequests(logRequests(newRouter(cfg, newPgStore(db), &ready, checks))),
+		Handler:           traceRequests(logRequests(newRouter(cfg, store, &ready, checks))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -112,6 +132,13 @@ func main() {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("graceful shutdown failed", "err", err)
 	}
+	// After the server: requests that finished draining may have written
+	// events. Anything left in the outbox is published by another pod.
+	stopRelay()
+	select {
+	case <-relayDone:
+	case <-shutdownCtx.Done():
+	}
 	// Flush buffered spans
 	if err := shutdownTracing(shutdownCtx); err != nil {
 		slog.Error("tracing shutdown failed", "err", err)
@@ -127,8 +154,8 @@ type config struct {
 	Message     string
 	Env         string
 
-	// Dependency URLs. DatabaseURL is required; leave the others empty to
-	// skip their health check.
+	// Dependency URLs. DatabaseURL and RabbitMQURL are required; leave
+	// RedisURL empty to skip its health check.
 	DatabaseURL string // postgres://user:pass@host:5432/db
 	RedisURL    string // redis://:pass@host:6379/0
 	RabbitMQURL string // amqp://user:pass@host:5672/

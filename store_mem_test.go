@@ -43,7 +43,7 @@ func (s *memStore) Get(ctx context.Context, id int64) (Item, error) {
 func (s *memStore) Create(ctx context.Context, name, kind string) (Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	it := Item{ID: s.nextID, Name: name, Kind: kind, CreatedAt: time.Now().UTC()}
+	it := Item{ID: s.nextID, Name: name, Kind: kind, CreatedAt: time.Now().UTC(), Status: "pending"}
 	s.items[it.ID] = it
 	s.nextID++
 	return it, nil

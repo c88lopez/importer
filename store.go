@@ -17,6 +17,9 @@ type Item struct {
 	Name      string    `json:"name"`
 	Kind      string    `json:"kind"` // "import" or "export"
 	CreatedAt time.Time `json:"createdAt"`
+	// "pending" until importer-worker processes the item, then "done".
+	Status      string     `json:"status"`
+	ProcessedAt *time.Time `json:"processedAt,omitempty"`
 }
 
 var errNotFound = errors.New("not found")
@@ -34,10 +37,14 @@ type itemStore interface {
 // schema comes from migrations/, applied by `importer-api migrate up`.
 type pgStore struct {
 	db *pgxpool.Pool
+
+	// Called after a transaction that wrote to the outbox commits, so the
+	// relay publishes right away instead of on its next poll. Optional.
+	outboxWritten func()
 }
 
 func newPgStore(db *pgxpool.Pool) *pgStore {
-	return &pgStore{db: db}
+	return &pgStore{db: db, outboxWritten: func() {}}
 }
 
 // newDBPool opens a lazy connection pool that traces its work: inside a
@@ -55,7 +62,7 @@ func newDBPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	return pgxpool.NewWithConfig(ctx, cfg)
 }
 
-const itemColumns = "id, name, kind, created_at"
+const itemColumns = "id, name, kind, created_at, status, processed_at"
 
 func (s *pgStore) List(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.Query(ctx, "SELECT "+itemColumns+" FROM items ORDER BY created_at, id")
@@ -70,10 +77,30 @@ func (s *pgStore) Get(ctx context.Context, id int64) (Item, error) {
 	return collectOneItem(rows)
 }
 
+// Create inserts the item and its item.created event in one transaction:
+// either both are committed or neither is, so the worker never misses an item
+// or hears about one that doesn't exist.
 func (s *pgStore) Create(ctx context.Context, name, kind string) (Item, error) {
-	rows, _ := s.db.Query(ctx,
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Item{}, err
+	}
+	defer tx.Rollback(ctx) // no-op after Commit
+
+	rows, _ := tx.Query(ctx,
 		"INSERT INTO items (name, kind) VALUES ($1, $2) RETURNING "+itemColumns, name, kind)
-	return collectOneItem(rows)
+	it, err := collectOneItem(rows)
+	if err != nil {
+		return Item{}, err
+	}
+	if err := writeOutbox(ctx, tx, "item.created", it); err != nil {
+		return Item{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Item{}, err
+	}
+	s.outboxWritten()
+	return it, nil
 }
 
 func (s *pgStore) Delete(ctx context.Context, id int64) error {
@@ -89,8 +116,11 @@ func (s *pgStore) Delete(ctx context.Context, id int64) error {
 
 func scanItem(row pgx.CollectableRow) (Item, error) {
 	var it Item
-	err := row.Scan(&it.ID, &it.Name, &it.Kind, &it.CreatedAt)
+	err := row.Scan(&it.ID, &it.Name, &it.Kind, &it.CreatedAt, &it.Status, &it.ProcessedAt)
 	it.CreatedAt = it.CreatedAt.UTC()
+	if it.ProcessedAt != nil {
+		*it.ProcessedAt = it.ProcessedAt.UTC()
+	}
 	return it, err
 }
 

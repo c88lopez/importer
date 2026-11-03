@@ -19,7 +19,8 @@ import (
 )
 
 // newTestPgStore migrates the database at TEST_DATABASE_URL and empties the
-// items table. Use a throwaway database: `make db-up` creates importer_test.
+// items and outbox tables. Never point it at real data: `make test` uses the
+// cluster's importer_test database (see make dev-setup).
 func newTestPgStore(t *testing.T) *pgStore {
 	t.Helper()
 	url := os.Getenv("TEST_DATABASE_URL")
@@ -42,7 +43,7 @@ func newTestPgStore(t *testing.T) *pgStore {
 		t.Fatal(err)
 	}
 	t.Cleanup(db.Close)
-	if _, err := db.Exec(ctx, "TRUNCATE items RESTART IDENTITY"); err != nil {
+	if _, err := db.Exec(ctx, "TRUNCATE items, outbox RESTART IDENTITY"); err != nil {
 		t.Fatal(err)
 	}
 	return newPgStore(db)
@@ -88,6 +89,50 @@ func TestPgStoreCRUD(t *testing.T) {
 	}
 	if err := s.Delete(ctx, latex.ID); !errors.Is(err, errNotFound) {
 		t.Errorf("delete twice: err = %v, want errNotFound", err)
+	}
+}
+
+// The event is committed with the item, and carries the item as JSON.
+func TestCreateWritesOutbox(t *testing.T) {
+	s := newTestPgStore(t)
+	ctx := context.Background()
+	notified := 0
+	s.outboxWritten = func() { notified++ }
+
+	it, err := s.Create(ctx, "latex", "import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if it.Status != "pending" || it.ProcessedAt != nil {
+		t.Errorf("new item = %+v, want status pending and no processedAt", it)
+	}
+	if notified != 1 {
+		t.Errorf("outboxWritten called %d times, want 1", notified)
+	}
+
+	var key string
+	var payload Item
+	if err := s.db.QueryRow(ctx, "SELECT routing_key, payload FROM outbox").Scan(&key, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if key != "item.created" || payload.ID != it.ID || payload.Name != "latex" {
+		t.Errorf("outbox row = %s %+v, want item.created for item %d", key, payload, it.ID)
+	}
+}
+
+// A failed insert must not leave an event behind.
+func TestCreateFailureWritesNoOutbox(t *testing.T) {
+	s := newTestPgStore(t)
+	ctx := context.Background()
+	if _, err := s.Create(ctx, "x", "smuggle"); err == nil {
+		t.Fatal("want a constraint violation")
+	}
+	var n int
+	if err := s.db.QueryRow(ctx, "SELECT count(*) FROM outbox").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("outbox has %d rows after a failed create, want 0", n)
 	}
 }
 
