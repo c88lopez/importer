@@ -1,25 +1,51 @@
 APP       := importer-api
-VERSION   ?= 1.4.0
+VERSION   ?= 1.5.0
 IMAGE     := ghcr.io/c88lopez/$(APP):$(VERSION)
 NAMESPACE := importer-api
 
-.PHONY: db-up db-down run test build image migrate-local migration release migrate dashboard deploy status logs restart rollout undeploy
+.PHONY: tunnel dev-setup run test build image migrate-local migration release migrate dashboard deploy status logs restart rollout undeploy
 
 ## --- local ---
-# Defaults point at the compose.yaml Postgres; set DATABASE_URL to override.
-export DATABASE_URL      ?= postgres://importer:importer@localhost:5433/importer?sslmode=disable
-export TEST_DATABASE_URL ?= postgres://importer:importer@localhost:5433/importer_test?sslmode=disable
+# Local runs use the cluster's Postgres and RabbitMQ through `make tunnel`,
+# with credentials read from their Secrets (each value is fetched once, and
+# only by targets that use it). Override with the LOCAL_* variables.
+#
+#   run, migrate-local   the real `app` database and the `/` vhost
+#   test                 importer_test and the importer-test vhost, because
+#                        tests truncate tables and delete exchanges
+secret = $(shell kubectl -n default get secret $(1) -o jsonpath='{.data.$(2)}' | base64 -d)
+PG_USER = $(eval PG_USER := $(call secret,postgres-app,username))$(PG_USER)
+PG_PASS = $(eval PG_PASS := $(call secret,postgres-app,password))$(PG_PASS)
+MQ_USER = $(eval MQ_USER := $(call secret,rabbitmq-default-user,username))$(MQ_USER)
+MQ_PASS = $(eval MQ_PASS := $(call secret,rabbitmq-default-user,password))$(MQ_PASS)
+TEST_VHOST := importer-test
 
-db-up: ## start the local Postgres and wait until it accepts connections
-	docker compose up -d --wait postgres
+LOCAL_DATABASE_URL      ?= postgres://$(PG_USER):$(PG_PASS)@localhost:5433/app
+LOCAL_TEST_DATABASE_URL ?= postgres://$(PG_USER):$(PG_PASS)@localhost:5433/importer_test
+LOCAL_RABBITMQ_URL      ?= amqp://$(MQ_USER):$(MQ_PASS)@localhost:5673/
+LOCAL_TEST_RABBITMQ_URL ?= amqp://$(MQ_USER):$(MQ_PASS)@localhost:5673/$(TEST_VHOST)
 
-db-down: ## stop the local Postgres (data is kept)
-	docker compose down
+# Leave it running in its own terminal. Ports 5433 and 5673, so it doesn't
+# clash with a forward of Postgres on 5432 you may already have.
+tunnel: ## forward the cluster's Postgres (5433) and RabbitMQ (5673, UI on 15673) to localhost
+	@trap 'kill 0' INT TERM EXIT; \
+	kubectl -n default port-forward svc/postgres-rw 5433:5432 & \
+	kubectl -n default port-forward svc/rabbitmq 5673:5672 15673:15672 & \
+	wait
 
-run: ## run the API on your machine (needs make db-up and make migrate-local first)
+dev-setup: ## once: create the test database and the test vhost in the cluster
+	kubectl apply -f k8s/dev/
+	kubectl -n default exec rabbitmq-server-0 -c rabbitmq -- rabbitmqctl add_vhost $(TEST_VHOST) || true
+	kubectl -n default exec rabbitmq-server-0 -c rabbitmq -- rabbitmqctl set_permissions -p $(TEST_VHOST) "$(MQ_USER)" ".*" ".*" ".*"
+
+run: export DATABASE_URL = $(LOCAL_DATABASE_URL)
+run: export RABBITMQ_URL = $(LOCAL_RABBITMQ_URL)
+run: ## run the API on your machine against the cluster's Postgres and RabbitMQ (needs make tunnel)
 	go run .
 
-test: ## unit tests, plus Postgres tests when the local database is up
+test: export TEST_DATABASE_URL = $(LOCAL_TEST_DATABASE_URL)
+test: export TEST_RABBITMQ_URL = $(LOCAL_TEST_RABBITMQ_URL)
+test: ## unit tests, plus Postgres and RabbitMQ tests in the cluster's test database and vhost (needs make tunnel)
 	go test ./...
 
 build:
@@ -28,8 +54,11 @@ build:
 image: ## build the image locally to try it (CI builds the one the cluster uses)
 	docker build --build-arg VERSION=$(VERSION) -t $(IMAGE) .
 
+# This is the real `app` database: an unreleased migration applied here is
+# live before its release. make migrate (the Job) is the normal path.
 MIGRATE ?= up
-migrate-local: ## migrate the local database: make migrate-local [MIGRATE=status|down]
+migrate-local: export DATABASE_URL = $(LOCAL_DATABASE_URL)
+migrate-local: ## run goose from your machine on the cluster's app database: make migrate-local [MIGRATE=status]
 	go run . migrate $(MIGRATE)
 
 migration: ## add an empty migration file: make migration NAME=add_items_owner

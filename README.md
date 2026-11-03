@@ -23,7 +23,7 @@ main.go ──go build──▶ binary ──docker build──▶ image ──k
 | GET    | `/healthz`        | Liveness probe (process only)                  |
 | GET    | `/readyz`         | Readiness probe + Postgres/Redis/RabbitMQ pings |
 | GET    | `/api/items`      | List items                                     |
-| POST   | `/api/items`      | Create `{"name": "latex", "kind": "import"}`   |
+| POST   | `/api/items`      | Create `{"name": "latex", "kind": "import"}`; announces it on RabbitMQ |
 | GET    | `/api/items/{id}` | Get one item                                   |
 | DELETE | `/api/items/{id}` | Delete one item                                |
 
@@ -49,7 +49,7 @@ Config comes from env vars: `PORT`, `APP_ENV`, `WELCOME_MESSAGE`, plus the depen
 
 Setting it to an empty string makes nothing critical. An unknown name, like `postgress`, stops the app at startup, so a typo can't quietly turn off the check.
 
-If a URL isn't set, that check is reported as `"skipped"` and doesn't fail the endpoint.
+`DATABASE_URL` and `RABBITMQ_URL` are required: the app won't start without them. If `REDIS_URL` isn't set, its check is reported as `"skipped"` and doesn't fail the endpoint.
 
 ```json
 {"status":"degraded","checks":{
@@ -79,17 +79,29 @@ Try it: point `DATABASE_URL` at a host that doesn't exist, then run `kubectl -n 
 
 ## Run locally
 
-Items are stored in Postgres. `compose.yaml` runs one locally (version 18, like the cluster), and the Makefile points `DATABASE_URL` at it unless you set your own.
+There are no local copies of the dependencies: `make run` and `make test` use the cluster's Postgres and RabbitMQ through `kubectl port-forward`. The Makefile reads the credentials from their Secrets in `default`.
+
+| | Postgres | RabbitMQ |
+| --- | --- | --- |
+| `make run`, `make migrate-local` | `app`, the real database | vhost `/`, the real exchange |
+| `make test` | `importer_test` | vhost `importer-test` |
+
+The tests truncate tables and create and delete exchanges, so they get their own database and vhost. `k8s/dev/test-database.yaml` declares the database as a CloudNativePG `Database` owned by the `app` user.
 
 ```sh
-make db-up          # start Postgres (docker compose)
-make migrate-local  # create the tables
+make dev-setup      # once: create importer_test and the importer-test vhost
+make tunnel         # in its own terminal: Postgres on 5433, RabbitMQ on 5673 (UI on 15673)
 make run
 curl -XPOST localhost:8080/api/items -d '{"name":"latex","kind":"import"}'
 curl localhost:8080/api/items
-make test           # also runs the Postgres tests against the importer_test database
-make db-down
+make test
 ```
+
+Locally created items are real: they're in the same table as the cluster's, and the cluster's importer-worker processes them. `make migrate-local` applies migrations to the real database, so a migration you're still writing is live before its release. Prefer `make migrate`, which runs the released image as a Job.
+
+RabbitMQ's management UI is at http://localhost:15673, with the credentials in the `rabbitmq-default-user` Secret.
+
+CI can't reach the cluster, so it runs the same tests against throwaway Postgres and RabbitMQ containers.
 
 ## Database migrations
 
@@ -177,6 +189,32 @@ kubectl -n monitoring port-forward svc/alloy 4317:4317 &
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 make run
 ```
 
+## Events and the outbox
+
+Creating an item publishes an `item.created` event, which [importer-worker](../importer-worker) consumes to process the item and set its `status` from `pending` to `done`.
+
+```
+POST /api/items ─► one transaction: INSERT items + INSERT outbox
+                                                      │
+          relay (outbox.go, in every pod) ◄───────────┘ polls every 1s, or right after a create
+            │ publish with confirms, then DELETE the row
+            ▼
+  exchange "importer" (topic) ─► routing key item.created ─► queues the consumers declare
+```
+
+Publishing right after the commit could lose the event: the pod can die, or RabbitMQ can be down, between the two. The **transactional outbox** avoids that. The event is a row written in the same transaction as the item, so both are saved or neither is. A relay then publishes outbox rows and deletes each one only after RabbitMQ confirms it has the message.
+
+| What happens | Result |
+| --- | --- |
+| RabbitMQ is down | Creates still work. Events wait in the outbox, and the relay reconnects with backoff and sends them. |
+| No queue is bound yet (the worker was never deployed) | Messages are published as `mandatory`, so RabbitMQ returns them instead of dropping them. They stay in the outbox until a queue exists. |
+| A pod dies after the confirm but before the delete | The row is published again. Delivery is **at least once**, so consumers must be idempotent. |
+| Two pods | `FOR UPDATE SKIP LOCKED` gives each row to one relay at a time. Order across pods isn't guaranteed. |
+
+Messages are persistent JSON (the item as `GET /api/items/{id}` returns it), with `type` set to the routing key, `message_id` set to the outbox id, and a `traceparent` header. The publish shows up as a `send importer` span under the request that created the item, and the worker's spans continue the same trace.
+
+The `00002` migration also queued an `item.created` for every existing item, so they go through the worker too.
+
 ## Metrics and dashboard
 
 Each pod serves Prometheus metrics on port 9464 (`/metrics`), separate from the API port so they aren't exposed through the NodePort. `k8s/40-podmonitor.yaml` makes Prometheus scrape them every 15s. The main series:
@@ -186,6 +224,8 @@ Each pod serves Prometheus metrics on port 9464 (`/metrics`), separate from the 
 | `http_server_request_duration_seconds` | Requests by `http_route`, `http_request_method` and `http_response_status_code` (histogram; `_count` for request counts). Probes aren't counted. |
 | `db_client_operation_duration_seconds` | Database calls by `pgx_operation_type` (`query`, `acquire`, `connect`, `prepare`) |
 | `pgxpool_*` | Connection pool: in use, idle, max |
+| `messaging_client_sent_messages_total` | Events published and confirmed, by `messaging_rabbitmq_destination_routing_key` |
+| `outbox_pending`, `outbox_oldest_age_seconds` | Events waiting in the outbox, and how long the oldest has waited. A growing age means events aren't leaving. |
 | `go_*`, `process_*` | Go runtime and process |
 
 The **Importer API** dashboard in Grafana (folder *Services*) shows requests, errors, latency, database calls, the connection pool, pod CPU and memory against their limits, restarts, version history, recent traces and logs. Deploy markers come from each pod's `server starting` log line. Its source is `k8s/dashboards/importer-api.json`. `make deploy` loads it, and `make dashboard` reloads it on its own, with no release needed. To change it, edit in Grafana, export the JSON (Share > Export), save it over the file and commit.
