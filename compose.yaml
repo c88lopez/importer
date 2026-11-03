@@ -6,6 +6,9 @@
 #
 # Two databases: importer for the app, importer_test for go test, which drops
 # and recreates tables, so it never touches your local data.
+#
+# Port 5433, not 5432, so it can't be shadowed by a `kubectl port-forward` to
+# the cluster's Postgres on 5432 (tests truncate tables).
 services:
   postgres:
     image: postgres:18-alpine
@@ -14,7 +17,7 @@ services:
       POSTGRES_PASSWORD: importer
       POSTGRES_DB: importer
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql
     configs:

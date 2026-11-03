@@ -3,6 +3,7 @@ module github.com/vandelay-labs/importer-api
 go 1.27.3
 
 require (
+	github.com/exaring/otelpgx v0.13.0
 	github.com/jackc/pgx/v5 v5.12.0
 	github.com/pressly/goose/v3 v3.29.0
 	github.com/rabbitmq/amqp091-go v1.16.0

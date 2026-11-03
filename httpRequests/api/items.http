@@ -1,0 +1,87 @@
+# Requests for the importer API. Pick an environment from the selector at the
+# top of the editor: "local" (make db-up && make migrate-local && make run) or
+# "k8s" (the cluster's NodePort). Hosts are in http-client.env.json.
+#
+# Run "Create an import" first: it saves the new id as {{itemId}}, which the
+# get and delete requests below use.
+
+### List all items, oldest first
+GET {{host}}/api/items
+
+> {%
+    client.test("returns 200 and an array", () => {
+        client.assert(response.status === 200, "status " + response.status);
+        client.assert(Array.isArray(response.body), "body is not an array");
+    });
+%}
+
+### Create an import
+POST {{host}}/api/items
+Content-Type: application/json
+
+{
+  "name": "latex",
+  "kind": "import"
+}
+
+> {%
+    client.test("returns 201 with the new item", () => {
+        client.assert(response.status === 201, "status " + response.status);
+        client.assert(typeof response.body.id === "string", "id should be a string");
+    });
+    client.global.set("itemId", response.body.id);
+%}
+
+### Create an export
+POST {{host}}/api/items
+Content-Type: application/json
+
+{
+  "name": "potato chips",
+  "kind": "export"
+}
+
+### Get the item created above
+GET {{host}}/api/items/{{itemId}}
+
+### Delete the item created above (204; running it again gives 404)
+DELETE {{host}}/api/items/{{itemId}}
+
+### Get an id that doesn't exist (404)
+GET {{host}}/api/items/999999
+
+### Non-numeric id (404: it can't exist)
+GET {{host}}/api/items/abc
+
+### Validation: name is required (400)
+POST {{host}}/api/items
+Content-Type: application/json
+
+{
+  "name": "   ",
+  "kind": "import"
+}
+
+### Validation: kind must be "import" or "export" (400)
+POST {{host}}/api/items
+Content-Type: application/json
+
+{
+  "name": "latex",
+  "kind": "smuggle"
+}
+
+### Validation: malformed JSON (400)
+POST {{host}}/api/items
+Content-Type: application/json
+
+{"name": "latex",
+
+### Info: which pod and version answered
+GET {{host}}/
+
+### Liveness probe
+GET {{host}}/healthz
+
+### Readiness probe: status of postgres, redis and rabbitmq
+GET {{host}}/readyz
