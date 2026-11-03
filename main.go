@@ -11,6 +11,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/exaring/otelpgx"
 )
 
 // Set at build time: go build -ldflags "-X main.version=1.0.0"
@@ -33,6 +35,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Before the pool and router: they read the global MeterProvider when created.
+	metricsHandler, shutdownMetrics, err := setupMetrics(context.Background())
+	if err != nil {
+		slog.Error("metrics setup failed", "err", err)
+		os.Exit(1)
+	}
+
 	// Items live in Postgres, so the API can't run without it. The pool
 	// connects lazily: a database that's down shows up in /readyz, not here.
 	if cfg.DatabaseURL == "" {
@@ -45,6 +54,10 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+	if err := otelpgx.RecordStats(db); err != nil {
+		slog.Error("pool metrics setup failed", "err", err)
+		os.Exit(1)
+	}
 
 	checks, closeChecks, err := newCheckers(cfg, db)
 	if err != nil {
@@ -63,8 +76,22 @@ func main() {
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
+	// Metrics get their own port, so they aren't exposed through the Service
+	// (NodePort) and scrapes don't show up as API traffic.
+	metricsSrv := &http.Server{
+		Addr:              ":" + cfg.MetricsPort,
+		Handler:           metricsHandler,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	go func() {
-		slog.Info("server starting", "port", cfg.Port, "version", version)
+		if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("metrics server failed", "err", err)
+			os.Exit(1)
+		}
+	}()
+
+	go func() {
+		slog.Info("server starting", "port", cfg.Port, "metricsPort", cfg.MetricsPort, "version", version)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			slog.Error("server failed", "err", err)
 			os.Exit(1)
@@ -89,13 +116,16 @@ func main() {
 	if err := shutdownTracing(shutdownCtx); err != nil {
 		slog.Error("tracing shutdown failed", "err", err)
 	}
+	_ = metricsSrv.Shutdown(shutdownCtx)
+	_ = shutdownMetrics(shutdownCtx)
 	slog.Info("server stopped")
 }
 
 type config struct {
-	Port    string
-	Message string
-	Env     string
+	Port        string
+	MetricsPort string // serves /metrics for Prometheus
+	Message     string
+	Env         string
 
 	// Dependency URLs. DatabaseURL is required; leave the others empty to
 	// skip their health check.
@@ -109,9 +139,10 @@ type config struct {
 
 func loadConfig() config {
 	return config{
-		Port:    getenv("PORT", "8080"),
-		Message: getenv("WELCOME_MESSAGE", "Vandelay Industries: importing and exporting since 1990"),
-		Env:     getenv("APP_ENV", "local"),
+		Port:        getenv("PORT", "8080"),
+		MetricsPort: getenv("METRICS_PORT", "9464"),
+		Message:     getenv("WELCOME_MESSAGE", "Vandelay Industries: importing and exporting since 1990"),
+		Env:         getenv("APP_ENV", "local"),
 
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		RedisURL:    os.Getenv("REDIS_URL"),

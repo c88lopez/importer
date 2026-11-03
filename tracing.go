@@ -31,14 +31,7 @@ func setupTracing(ctx context.Context) (shutdown func(context.Context) error, er
 		return noop, err
 	}
 
-	res, err := resource.New(ctx,
-		resource.WithAttributes(
-			attribute.String("service.name", "importer-api"),
-			attribute.String("service.version", version),
-		),
-		resource.WithFromEnv(), // after the defaults so env vars win
-		resource.WithTelemetrySDK(),
-	)
+	res, err := newResource(ctx)
 	if err != nil {
 		return noop, err
 	}
@@ -52,8 +45,23 @@ func setupTracing(ctx context.Context) (shutdown func(context.Context) error, er
 	return tp.Shutdown, nil
 }
 
+// newResource describes this process on every span and metric: service
+// name and version (OTEL_SERVICE_NAME and OTEL_RESOURCE_ATTRIBUTES override).
+func newResource(ctx context.Context) (*resource.Resource, error) {
+	return resource.New(ctx,
+		resource.WithAttributes(
+			attribute.String("service.name", "importer-api"),
+			attribute.String("service.version", version),
+		),
+		resource.WithFromEnv(), // after the defaults so env vars win
+		resource.WithTelemetrySDK(),
+	)
+}
+
 // traceRequests starts a server span per request, named after the matched
-// route (e.g. "GET /api/items/{id}"). Probes are skipped: they'd be most of the traces.
+// route (e.g. "GET /api/items/{id}"), and records the request in the
+// http.server.request.duration histogram (see metrics.go). Probes are
+// skipped: they'd be most of the traces and skew the request counts.
 func traceRequests(next http.Handler) http.Handler {
 	return otelhttp.NewHandler(next, "http.server",
 		otelhttp.WithFilter(func(r *http.Request) bool {

@@ -177,6 +177,23 @@ kubectl -n monitoring port-forward svc/alloy 4317:4317 &
 OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317 make run
 ```
 
+## Metrics and dashboard
+
+Each pod serves Prometheus metrics on port 9464 (`/metrics`), separate from the API port so they aren't exposed through the NodePort. `k8s/40-podmonitor.yaml` makes Prometheus scrape them every 15s. The main series:
+
+| Metric | What |
+| --- | --- |
+| `http_server_request_duration_seconds` | Requests by `http_route`, `http_request_method` and `http_response_status_code` (histogram; `_count` for request counts). Probes aren't counted. |
+| `db_client_operation_duration_seconds` | Database calls by `pgx_operation_type` (`query`, `acquire`, `connect`, `prepare`) |
+| `pgxpool_*` | Connection pool: in use, idle, max |
+| `go_*`, `process_*` | Go runtime and process |
+
+The **Importer API** dashboard in Grafana (folder *Services*) shows requests, errors, latency, database calls, the connection pool, pod CPU and memory against their limits, restarts, version history, recent traces and logs. Deploy markers come from each pod's `server starting` log line. Its source is `k8s/dashboards/importer-api.json`. `make deploy` loads it, and `make dashboard` reloads it on its own, with no release needed. To change it, edit in Grafana, export the JSON (Share > Export), save it over the file and commit.
+
+```sh
+curl -s localhost:9464/metrics | grep http_server_request_duration_seconds_count   # with make run
+```
+
 ## Experiments to try
 
 **See load balancing.** Run this a few times and watch the `pod` field change:

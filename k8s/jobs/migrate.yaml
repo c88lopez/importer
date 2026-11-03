@@ -26,7 +26,7 @@ spec:
       containers:
         - name: migrate
           # make migrate replaces this with the image for $(VERSION).
-          image: ghcr.io/c88lopez/importer-api:1.3.0
+          image: ghcr.io/c88lopez/importer-api:1.4.0
           args: ["migrate", "up"]
           envFrom:
             # Not optional here: without DATABASE_URL there's nothing to migrate.

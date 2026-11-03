@@ -1,9 +1,9 @@
 APP       := importer-api
-VERSION   ?= 1.3.0
+VERSION   ?= 1.4.0
 IMAGE     := ghcr.io/c88lopez/$(APP):$(VERSION)
 NAMESPACE := importer-api
 
-.PHONY: db-up db-down run test build image migrate-local migration release migrate deploy status logs restart rollout undeploy
+.PHONY: db-up db-down run test build image migrate-local migration release migrate dashboard deploy status logs restart rollout undeploy
 
 ## --- local ---
 # Defaults point at the compose.yaml Postgres; set DATABASE_URL to override.
@@ -36,7 +36,7 @@ migration: ## add an empty migration file: make migration NAME=add_items_owner
 	go run . migrate create $(NAME)
 
 ## --- kubernetes ---
-release: ## tag a version; CI builds and pushes it: make release VERSION=1.3.0
+release: ## tag a version; CI builds and pushes it: make release VERSION=1.4.0
 	git tag v$(VERSION)
 	git push origin v$(VERSION)
 
@@ -52,8 +52,19 @@ migrate: ## run pending migrations in the cluster with the $(VERSION) image; sto
 	-kubectl -n $(NAMESPACE) logs job/$(APP)-migrate
 	@$(JOB_STATE) | grep -qw Complete || { echo "migration failed, nothing was deployed"; exit 1; }
 
-deploy: migrate ## migrate, then apply all manifests (the image comes from ghcr.io)
+# Grafana's sidecar loads any ConfigMap labeled grafana_dashboard, from any
+# namespace, into the folder named by grafana_folder. Edit the dashboard in
+# Grafana, export it (Share > Export > JSON), save it over the file, re-run this.
+dashboard: ## load k8s/dashboards/importer-api.json into Grafana (no release needed)
+	kubectl -n $(NAMESPACE) create configmap $(APP)-dashboard \
+	  --from-file=importer-api.json=k8s/dashboards/importer-api.json --dry-run=client -o yaml \
+	  | kubectl label --local -f - grafana_dashboard=1 -o yaml \
+	  | kubectl annotate --local -f - grafana_folder=Services -o yaml \
+	  | kubectl apply --server-side -f -
+
+deploy: migrate ## migrate, then apply all manifests and the dashboard (the image comes from ghcr.io)
 	kubectl apply -f k8s/
+	$(MAKE) dashboard
 	kubectl -n $(NAMESPACE) rollout status deployment/$(APP)
 
 status: ## show everything running in the namespace
@@ -66,7 +77,7 @@ restart: ## recreate pods (e.g. after changing the ConfigMap)
 	kubectl -n $(NAMESPACE) rollout restart deployment/$(APP)
 	kubectl -n $(NAMESPACE) rollout status deployment/$(APP)
 
-rollout: migrate ## migrate, then switch to a version CI already pushed: make rollout VERSION=1.3.0
+rollout: migrate ## migrate, then switch to a version CI already pushed: make rollout VERSION=1.4.0
 	kubectl -n $(NAMESPACE) set image deployment/$(APP) $(APP)=$(IMAGE)
 	kubectl -n $(NAMESPACE) rollout status deployment/$(APP)
 
