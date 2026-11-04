@@ -1,6 +1,10 @@
 # Requests for the importer API. Pick an environment from the selector at the
-# top of the editor: "local" (make db-up && make migrate-local && make run) or
-# "k8s" (the cluster's NodePort). Hosts are in http-client.env.json.
+# top of the editor: "local" (make tunnel, then make run-api) or "k8s" (the
+# cluster's NodePort). Both use the cluster's database, so the data is real.
+#
+# Hosts and the item names are in http-client.env.json. To use your own data
+# without changing tracked files, override them in http-client.private.env.json
+# (gitignored), e.g. {"k8s": {"importName": "sugar"}}.
 #
 # Run "Create an import" first: it saves the new id as {{itemId}}, which the
 # get and delete requests below use.
@@ -20,7 +24,7 @@ POST {{host}}/api/items
 Content-Type: application/json
 
 {
-  "name": "latex",
+  "name": "{{importName}}",
   "kind": "import"
 }
 
@@ -37,7 +41,7 @@ POST {{host}}/api/items
 Content-Type: application/json
 
 {
-  "name": "milanesa",
+  "name": "{{exportName}}",
   "kind": "export"
 }
 
@@ -45,7 +49,7 @@ Content-Type: application/json
 GET {{host}}/api/items/{{itemId}}
 
 ### Delete the item created above (204; running it again gives 404)
-DELETE {{host}}/api/items/3
+DELETE {{host}}/api/items/{{itemId}}
 
 ### Get an id that doesn't exist (404)
 GET {{host}}/api/items/999999
