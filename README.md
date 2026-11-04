@@ -240,7 +240,12 @@ Each pod serves Prometheus metrics on port 9464 (`/metrics`), separate from the 
 | `outbox_pending`, `outbox_oldest_age_seconds` | Events waiting in the outbox, and how long the oldest has waited. A growing age means events aren't leaving. |
 | `go_*`, `process_*` | Go runtime and process |
 
-The **Importer API** dashboard in Grafana (folder *Services*) shows requests, errors, latency, database calls, the connection pool, pod CPU and memory against their limits, restarts, version history, recent traces and logs. Deploy markers come from each pod's `server starting` log line. Its source is `k8s/dashboards/importer-api.json`. `make deploy` loads it, and `make dashboard` reloads it on its own, with no release needed. To change it, edit in Grafana, export the JSON (Share > Export), save it over the file and commit.
+Grafana has one dashboard per service, in the *Services* folder:
+
+- **Importer API** shows requests, errors, latency, database calls, the connection pool, pod CPU and memory against their limits, restarts, version history, recent traces and logs. Deploy markers come from each pod's `server starting` log line.
+- **Importer Worker** shows messages by outcome (done, requeued, dead-lettered), processing time, the queue, its consumers, the dead-letter queue, the API's outbox backlog, recent traces, the database, pods, versions and logs. See [cmd/worker/README.md](cmd/worker/README.md).
+
+Their sources are `k8s/dashboards/*.json`, one ConfigMap each. `make deploy` loads them, and `make dashboard` reloads them on its own, with no release needed. To change one, edit in Grafana, export the JSON (Share > Export), save it over the file and commit.
 
 ```sh
 curl -s localhost:9464/metrics | grep http_server_request_duration_seconds_count   # with make run-api

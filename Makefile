@@ -108,18 +108,21 @@ migrate: ## run pending migrations in the cluster with the $(VERSION) image; sto
 	@$(JOB_STATE) | grep -qw Complete || { echo "migration failed, nothing was deployed"; exit 1; }
 
 # Grafana's sidecar loads any ConfigMap labeled grafana_dashboard, from any
-# namespace, into the folder named by grafana_folder. Edit the dashboard in
-# Grafana, export it (Share > Export > JSON), save it over the file, re-run this.
-dashboard: ## load k8s/dashboards/importer-api.json into Grafana (no release needed)
-	kubectl -n $(NAMESPACE) create configmap importer-api-dashboard \
-	  --from-file=importer-api.json=k8s/dashboards/importer-api.json --dry-run=client -o yaml \
-	  | kubectl label --local -f - grafana_dashboard=1 -o yaml \
-	  | kubectl annotate --local -f - grafana_folder=Services -o yaml \
-	  | kubectl apply --server-side -f -
+# namespace, into the folder named by grafana_folder. Each file in
+# k8s/dashboards/ gets its own ConfigMap (<name>-dashboard). Edit a dashboard
+# in Grafana, export it (Share > Export > JSON), save it over the file, re-run this.
+dashboard: ## load every dashboard in k8s/dashboards/ into Grafana (no release needed)
+	@for f in k8s/dashboards/*.json; do \
+	  name=$$(basename $$f .json); \
+	  kubectl -n $(NAMESPACE) create configmap $$name-dashboard --from-file=$$name.json=$$f --dry-run=client -o yaml \
+	    | kubectl label --local -f - grafana_dashboard=1 -o yaml \
+	    | kubectl annotate --local -f - grafana_folder=Services -o yaml \
+	    | kubectl apply --server-side -f -; \
+	done
 
 # Order matters: the migration first, so the API and worker of a version
 # always find the schema they expect. k8s/dev/ and k8s/jobs/ aren't applied.
-deploy: migrate ## migrate, then roll out the API and the worker and load the dashboard
+deploy: migrate ## migrate, then roll out the API and the worker and load the dashboards
 	kubectl apply -f k8s/00-namespace.yaml -f k8s/api/ -f k8s/worker/
 	$(MAKE) dashboard
 	kubectl -n $(NAMESPACE) rollout status deployment/importer-api
