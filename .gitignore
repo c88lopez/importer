@@ -1,2 +1,4 @@
 bin/
 .idea
+# Personal values for the HTTP client (see httpRequests/api/items.http)
+http-client.private.env.json
