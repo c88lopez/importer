@@ -52,7 +52,20 @@ There's no API, so one port (`PORT`, default 9464) serves:
 | `messaging_process_duration_seconds` | Messages processed, by `outcome` (`done`, `requeued`, `dead_lettered`) |
 | `db_client_operation_duration_seconds`, `pgxpool_*` | Database calls and the connection pool |
 
-Queue depth comes from RabbitMQ's own metrics (its ServiceMonitor in `default`).
+Queue metrics come from RabbitMQ itself. Its default `/metrics` (the ServiceMonitor in `default`) adds up all queues, so `k8s/worker/50-rabbitmq-queues.yaml` also scrapes `/metrics/detailed`, which has one series per queue, and keeps only the worker's queues:
+
+| Metric | What |
+| --- | --- |
+| `rabbitmq_detailed_queue_messages_ready{queue}` | Waiting for a worker. Should stay near 0. |
+| `rabbitmq_detailed_queue_messages_unacked{queue}` | Delivered to a worker, not acked yet (in progress or prefetched) |
+| `rabbitmq_detailed_queue_consumers{queue}` | Consumers: one per worker pod |
+| `rabbitmq_detailed_queue_messages{queue="importer-worker.item-created.dlq"}` | Messages waiting in the dead-letter queue |
+
+The **Importer Worker** dashboard in Grafana (folder *Services*, source `k8s/dashboards/importer-worker.json`) puts these together with the worker's own metrics and logs. Things to watch:
+
+- **In DLQ** above 0: a message was given up on. The *Errors and warnings* logs say why, and the red annotations mark when.
+- **Waiting in queue** growing: the workers aren't keeping up, or aren't consuming (check *Consumers* and *Ready pods*).
+- **API outbox backlog** growing: events aren't reaching RabbitMQ at all, so the worker has nothing to do. See the Importer API dashboard.
 
 Each message gets a `process importer-worker.item-created` span, which continues the trace from the message's `traceparent` header. In Tempo, a `POST /api/items` trace shows the request, the API's `send importer`, the worker's `process`, and the worker's `UPDATE`.
 

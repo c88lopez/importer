@@ -1,0 +1,36 @@
+# Per-queue RabbitMQ metrics for the worker's queues, for its dashboard.
+#
+# RabbitMQ's default /metrics (scraped by the ServiceMonitor in `default`)
+# sums all queues together. /metrics/detailed returns one series per queue,
+# for the metric families asked for, e.g.
+#   rabbitmq_detailed_queue_messages_ready{vhost="/", queue="importer-worker.item-created"}
+#
+# It lives here, next to the worker, and only keeps the worker's queues, so
+# other apps on the broker don't add series.
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: importer-rabbitmq-queues
+  namespace: importer
+  labels:
+    app: importer-worker
+spec:
+  namespaceSelector:
+    matchNames: [default]
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: rabbitmq
+  podMetricsEndpoints:
+    - port: prometheus
+      path: /metrics/detailed
+      params:
+        vhost: ["/"]
+        family:
+          - queue_coarse_metrics    # messages ready, unacked, total
+          - queue_consumer_count    # consumers
+          - queue_delivery_metrics  # delivered, acked, redelivered counters
+      interval: 15s
+      metricRelabelings:
+        - sourceLabels: [queue]
+          regex: importer-worker\..*
+          action: keep
