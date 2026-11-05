@@ -83,17 +83,19 @@ release: ## tag a version; CI builds and pushes both images: make release VERSIO
 
 # Each service gets its own Secret with only what it uses. The worker uses
 # the same database user as the API: it updates the API's items table.
+# --server-side: a client-side `kubectl apply` would keep a plain-text copy of
+# the URLs (with their passwords) in the last-applied-configuration annotation.
 secrets: ## create or update both Secrets from the cluster's Postgres, RabbitMQ and Redis Secrets
 	kubectl apply -f k8s/00-namespace.yaml
 	kubectl -n $(NAMESPACE) create secret generic importer-api-deps \
 	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
 	  --from-literal=REDIS_URL="redis://:$$(kubectl -n default get secret redis-secret -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d)@redis.default.svc.cluster.local:6379/0" \
-	  --dry-run=client -o yaml | kubectl apply -f -
+	  --dry-run=client -o yaml | kubectl apply --server-side -f -
 	kubectl -n $(NAMESPACE) create secret generic importer-worker-deps \
 	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
-	  --dry-run=client -o yaml | kubectl apply -f -
+	  --dry-run=client -o yaml | kubectl apply --server-side -f -
 
 # The Job's pod has no fixed name, so poll its conditions until it either
 # completes or fails (activeDeadlineSeconds turns a hang into a failure).
