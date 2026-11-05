@@ -1,13 +1,11 @@
 # Both services build from this repo and share a version: one tag releases
-# both images, and `make deploy` rolls out both. The version deployed is the
-# newTag in k8s/kustomization.yaml; VERSION defaults to it.
+# both images, and Argo CD rolls out both. The version deployed is the newTag
+# in k8s/kustomization.yaml; VERSION defaults to it.
 VERSION   ?= $(shell sed -n "s/^ *newTag: *//p" k8s/kustomization.yaml | head -1)
 REGISTRY  := ghcr.io/c88lopez
 NAMESPACE := importer
-API_IMAGE    := $(REGISTRY)/importer-api:$(VERSION)
-WORKER_IMAGE := $(REGISTRY)/importer-worker:$(VERSION)
 
-.PHONY: tunnel dev-setup run-api run-worker test build image migrate-local migration release secrets migrate dashboard deploy rollout status logs restart undeploy
+.PHONY: tunnel dev-setup run-api run-worker test build image migrate-local migration release secrets status logs restart
 
 ## --- local ---
 # Local runs use the cluster's Postgres and RabbitMQ through `make tunnel`,
@@ -68,7 +66,8 @@ image: ## build one image locally to try it: make image [APP=worker] (CI builds 
 	docker build --build-arg APP=$(APP) --build-arg VERSION=$(VERSION) -t $(REGISTRY)/importer-$(APP):$(VERSION) .
 
 # This is the real `app` database: an unreleased migration applied here is
-# live before its release. make migrate (the Job) is the normal path.
+# live before its release. The migration Job each Argo CD sync runs is the
+# normal path.
 MIGRATE ?= up
 migrate-local: export DATABASE_URL = $(LOCAL_DATABASE_URL)
 migrate-local: ## run goose from your machine on the cluster's app database: make migrate-local [MIGRATE=status]
@@ -78,7 +77,9 @@ migration: ## add an empty migration file: make migration NAME=add_items_owner
 	go run ./cmd/api migrate create $(NAME)
 
 ## --- kubernetes ---
-release: ## tag a version; CI builds and pushes both images: make release VERSION=1.6.0
+# Argo CD deploys it from there: Image Updater commits the new tag to
+# k8s/kustomization.yaml, and the sync migrates, then rolls out both services.
+release: ## tag a version: CI builds both images, Argo CD deploys them: make release VERSION=1.7.0
 	git tag v$(VERSION)
 	git push origin v$(VERSION)
 
@@ -98,41 +99,6 @@ secrets: ## create or update both Secrets from the cluster's Postgres, RabbitMQ 
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
 	  --dry-run=client -o yaml | kubectl apply --server-side -f -
 
-# The Job's pod has no fixed name, so poll its conditions until it either
-# completes or fails (activeDeadlineSeconds turns a hang into a failure).
-JOB_STATE = kubectl -n $(NAMESPACE) get job importer-api-migrate -o jsonpath='{.status.conditions[?(@.status=="True")].type}'
-
-migrate: ## run pending migrations in the cluster with the $(VERSION) image; stops if they fail
-	kubectl -n $(NAMESPACE) delete job importer-api-migrate --ignore-not-found
-	sed 's|image: ghcr.io/.*|image: $(API_IMAGE)|' k8s/jobs/migrate.yaml | kubectl apply -f -
-	@echo "waiting for job/importer-api-migrate..."
-	@until $(JOB_STATE) | grep -qwE 'Complete|Failed'; do sleep 2; done
-	-kubectl -n $(NAMESPACE) logs job/importer-api-migrate
-	@$(JOB_STATE) | grep -qw Complete || { echo "migration failed, nothing was deployed"; exit 1; }
-
-# Grafana's sidecar loads any ConfigMap labeled grafana_dashboard, from any
-# namespace. k8s/kustomization.yaml makes one per file in k8s/dashboards/
-# (<name>-dashboard). Edit a dashboard in Grafana, export it
-# (Share > Export > JSON), save it over the file, re-run this.
-dashboard: ## load every dashboard in k8s/dashboards/ into Grafana (no release needed)
-	kubectl apply -k k8s/ -l grafana_dashboard=1
-
-# Order matters: the migration first, so the API and worker of a version
-# always find the schema they expect. The Job is left out here (make migrate
-# already ran it), and k8s/dev/ isn't in the kustomization.
-deploy: migrate ## migrate, then roll out the API and the worker and load the dashboards
-	kubectl apply -k k8s/ -l 'component!=migrate'
-	kubectl -n $(NAMESPACE) rollout status deployment/importer-api
-	kubectl -n $(NAMESPACE) rollout status deployment/importer-worker
-
-# Changes the cluster only: bump newTag in k8s/kustomization.yaml too, or the
-# next make deploy puts the old version back.
-rollout: migrate ## migrate, then switch both services to a version CI already pushed: make rollout VERSION=1.6.0
-	kubectl -n $(NAMESPACE) set image deployment/importer-api importer-api=$(API_IMAGE)
-	kubectl -n $(NAMESPACE) set image deployment/importer-worker importer-worker=$(WORKER_IMAGE)
-	kubectl -n $(NAMESPACE) rollout status deployment/importer-api
-	kubectl -n $(NAMESPACE) rollout status deployment/importer-worker
-
 status: ## show everything running in the namespace
 	kubectl -n $(NAMESPACE) get all,configmap -o wide
 
@@ -143,7 +109,3 @@ restart: ## recreate the pods of both services (e.g. after changing a ConfigMap 
 	kubectl -n $(NAMESPACE) rollout restart deployment/importer-api deployment/importer-worker
 	kubectl -n $(NAMESPACE) rollout status deployment/importer-api
 	kubectl -n $(NAMESPACE) rollout status deployment/importer-worker
-
-# Keeps the namespace and the Secrets, so a later make deploy just works.
-undeploy: ## delete both services (not the namespace)
-	kubectl delete -f k8s/api/ -f k8s/worker/ --ignore-not-found

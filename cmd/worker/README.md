@@ -71,6 +71,6 @@ Each message gets a `process importer-worker.item-created` span, which continues
 
 ## Deploy
 
-The worker is released and deployed with the API: one version, one `make release`, and `make deploy` rolls out both, after the migration (see the main README). It runs in the `importer` namespace with its own Secret, `importer-worker-deps`, and has no Service. `make logs APP=worker` streams its logs.
+The worker is released and deployed with the API: one version, one `make release`, and Argo CD rolls out both, after the migration (see the main README). It runs in the `importer` namespace with its own Secret, `importer-worker-deps`, and has no Service. `make logs APP=worker` streams its logs.
 
 On shutdown (SIGTERM), the worker stops taking messages and finishes the one in hand, with up to 30s for it. Prefetched messages go back to the queue.

@@ -1,5 +1,5 @@
 # One namespace for the importer services. Deleting it deletes both of them;
-# `make undeploy` removes the services but keeps the namespace.
+# Argo CD manages it with the rest of k8s/; the Secrets in it come from make secrets.
 apiVersion: v1
 kind: Namespace
 metadata:

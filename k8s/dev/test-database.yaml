@@ -1,7 +1,7 @@
 # A database for `make test`, next to the real one on the cluster's Postgres.
 # The tests truncate tables, so they must never run against `app`.
 #
-# In k8s/dev/, not k8s/: it's for development, so `make deploy` doesn't apply
+# In k8s/dev/, not k8s/: it's for development, so Argo CD doesn't apply
 # it; `make dev-setup` does. CloudNativePG creates the database and keeps it
 # if this resource is deleted (databaseReclaimPolicy defaults to retain).
 apiVersion: postgresql.cnpg.io/v1

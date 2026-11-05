@@ -1,8 +1,8 @@
-# Everything the importer runs in the cluster, built with `kubectl apply -k k8s/`
-# (make deploy) and, later, by Argo CD.
+# Everything the importer runs in the cluster. Argo CD deploys it (the
+# importer Application in the platform repo) whenever main changes.
 #
-# The version both services run is the newTag below: one place to change it,
-# for the Deployments and the migration Job alike.
+# The version both services run is the newTag below, for the Deployments and
+# the migration Job alike. Image Updater changes it when CI pushes a release.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
