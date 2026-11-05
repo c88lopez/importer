@@ -1,7 +1,7 @@
 # Everything the importer runs in the cluster. Argo CD deploys it (the
 # importer Application in the platform repo) whenever main changes.
 #
-# The version both services run is the newTag below, for the Deployments and
+# The version the services run is the newTag below, for the Deployments and
 # the migration Job alike. Image Updater changes it when CI pushes a release.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
@@ -16,6 +16,10 @@ resources:
   - worker/20-deployment.yaml
   - worker/40-podmonitor.yaml
   - worker/50-rabbitmq-queues.yaml
+  - graphql/10-configmap.yaml
+  - graphql/20-deployment.yaml
+  - graphql/30-service.yaml
+  - graphql/40-podmonitor.yaml
   - jobs/migrate.yaml
   # Not dev/: the test database is for local runs, not part of a deploy.
 
@@ -26,6 +30,9 @@ images:
   - name: ghcr.io/c88lopez/importer-worker
     newTag: 1.8.0
     newName: ghcr.io/c88lopez/importer-worker
+  - name: ghcr.io/c88lopez/importer-graphql
+    newTag: 1.8.0
+    newName: ghcr.io/c88lopez/importer-graphql
 
 # One ConfigMap per dashboard. Grafana's sidecar loads any ConfigMap labeled
 # grafana_dashboard, from any namespace, into the folder in grafana_folder.

@@ -1,0 +1,17 @@
+# Prometheus scrapes /metrics on each importer-graphql pod's metrics port,
+# like the API's (see k8s/api/40-podmonitor.yaml).
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: importer-graphql
+  namespace: importer
+  labels:
+    app: importer-graphql
+spec:
+  selector:
+    matchLabels:
+      app: importer-graphql
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

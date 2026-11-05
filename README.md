@@ -21,7 +21,7 @@ internal/events/      the RabbitMQ contract: exchange, routing keys, trace heade
 internal/database/    connection pool and migrations (dbtest: a test database for tests)
 internal/telemetry/   tracing, metrics and logs, set up the same way in each
 migrations/           the schema, embedded in importer-api
-k8s/                  the "importer" namespace: kustomization.yaml (what a deploy applies, and the version), api/, worker/, jobs/ (migrations), dashboards/, dev/
+k8s/                  the "importer" namespace: kustomization.yaml (what a deploy applies, and the version), api/, worker/, graphql/, jobs/ (migrations), dashboards/, dev/
 ```
 
 `internal/` packages can only be imported from this module, so the split stays private to the repo.
@@ -95,7 +95,7 @@ Try it: point `DATABASE_URL` at a host that doesn't exist, then run `kubectl -n 
 
 ## GraphQL
 
-importer-graphql serves the same items as the REST API, from the same table, through one endpoint, `POST /graphql`. Open `/` in a browser for GraphiQL, which autocompletes from the schema. The schema is [internal/gql/schema.graphqls](internal/gql/schema.graphqls):
+importer-graphql serves the same items as the REST API, from the same table, through one endpoint, `POST /graphql`. Open `/` in a browser for GraphiQL, which autocompletes from the schema: http://192.168.68.57:30082/ in the cluster, http://localhost:8081/ with `make run-graphql`. The schema is [internal/gql/schema.graphqls](internal/gql/schema.graphqls):
 
 ```graphql
 type Query {
@@ -216,7 +216,7 @@ To roll back, first tell Image Updater to skip the bad version: add it to `ignor
 
 The cluster is Docker Desktop on another PC (`192.168.68.57`); `kubectl config current-context` prints `docker-desktop`. Postgres, RabbitMQ and Redis already run in its `default` namespace.
 
-Both services run in the `importer` namespace. Each has its own Secret, with only the connection URLs it uses. Secrets aren't in Git, so they're the one thing you create by hand:
+All three services run in the `importer` namespace. Each has its own Secret, with only the connection URLs it uses. Secrets aren't in Git, so they're the one thing you create by hand:
 
 ```sh
 make secrets        # once: copies the connection URLs from the Secrets in `default`
@@ -226,7 +226,8 @@ Everything else is deployed by Argo CD (http://192.168.68.57:30081), from `k8s/`
 
 ```sh
 make status
-curl http://192.168.68.57:30080/readyz
+curl http://192.168.68.57:30080/readyz   # REST API
+curl http://192.168.68.57:30082/readyz   # GraphQL
 ```
 
 ## Tracing
