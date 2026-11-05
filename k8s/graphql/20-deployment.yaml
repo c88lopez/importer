@@ -1,0 +1,73 @@
+# importer-graphql: the same items as importer-api, over GraphQL. Same shape
+# as the API's Deployment (see k8s/api/20-deployment.yaml for the details).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: importer-graphql
+  namespace: importer
+  labels:
+    app: importer-graphql
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: importer-graphql
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: importer-graphql
+    spec:
+      terminationGracePeriodSeconds: 20
+      containers:
+        - name: importer-graphql
+          # Built and pushed by .github/workflows/build.yml when a v* tag is pushed.
+          # Argo CD deploys it through k8s/kustomization.yaml; applied on
+          # its own, this file has no tag and would run :latest.
+          image: ghcr.io/c88lopez/importer-graphql # tag: newTag in k8s/kustomization.yaml
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: metrics
+              containerPort: 9464
+          envFrom:
+            - configMapRef:
+                name: importer-graphql-config
+            # DATABASE_URL and RABBITMQ_URL (make secrets). Not optional: it can't
+            # start without them.
+            - secretRef:
+                name: importer-graphql-deps
+          env:
+            - name: PORT
+              value: "8080"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 250m
+              memory: 128Mi
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65532
+            runAsGroup: 65532
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true

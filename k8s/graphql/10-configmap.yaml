@@ -1,0 +1,13 @@
+# Non-secret config for importer-graphql, injected as env vars. The database
+# and RabbitMQ URLs are in the importer-graphql-deps Secret (make secrets).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: importer-graphql-config
+  namespace: importer
+data:
+  APP_ENV: "k8s-local"
+  # It doesn't use Redis, so only these two are checked by /readyz.
+  CRITICAL_DEPENDENCIES: "postgres,rabbitmq"
+  # Send traces to Alloy, which forwards them to Tempo. Remove to turn tracing off.
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://alloy.monitoring.svc:4317"
