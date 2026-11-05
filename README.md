@@ -18,7 +18,7 @@ internal/events/      the RabbitMQ contract: exchange, routing keys, trace heade
 internal/database/    connection pool and migrations (dbtest: a test database for tests)
 internal/telemetry/   tracing, metrics and logs, set up the same way in both
 migrations/           the schema, embedded in importer-api
-k8s/                  the "importer" namespace: api/, worker/, jobs/ (migrations), dev/, dashboards/
+k8s/                  the "importer" namespace: kustomization.yaml (what a deploy applies, and the version), api/, worker/, jobs/ (migrations), dashboards/, dev/
 ```
 
 `internal/` packages can only be imported from this module, so the split stays private to the repo.
@@ -156,12 +156,14 @@ kubectl apply ──▶ Deployment ──▶ kubelet on the node pulls the image
 | A tag `v1.2.3`      | `1.2.3`, `1.2`, `latest`      |
 | A pull request      | Built and tested, not pushed  |
 
-Both services share one version. The Deployments pin it exactly, so the cluster runs only what you chose. Ship a new version with:
+Both services share one version: the `newTag` in `k8s/kustomization.yaml`, which pins it exactly, so the cluster runs only what you chose. Ship a new version with:
 
 ```sh
 make release VERSION=1.7.0   # pushes tag v1.7.0, and CI builds both images; wait for the Actions run to finish
 make rollout VERSION=1.7.0   # migrates, then points both Deployments at the new images
 ```
+
+Then set both `newTag`s to 1.7.0 and commit, so the next `make deploy` keeps it.
 
 ## Deploy
 
@@ -171,7 +173,7 @@ Both services run in the `importer` namespace. Each has its own Secret, with onl
 
 ```sh
 make secrets        # once: copies the connection URLs from the Secrets in `default`
-make deploy         # migration Job, then the API, the worker and the dashboard
+make deploy         # migration Job, then `kubectl apply -k k8s/`: the API, the worker and the dashboards
 make status
 curl http://192.168.68.57:30080/readyz
 ```
@@ -245,7 +247,7 @@ Grafana has one dashboard per service, in the *Services* folder:
 - **Importer API** shows requests, errors, latency, database calls, the connection pool, pod CPU and memory against their limits, restarts, version history, recent traces and logs. Deploy markers come from each pod's `server starting` log line.
 - **Importer Worker** shows messages by outcome (done, requeued, dead-lettered), processing time, the queue, its consumers, the dead-letter queue, the API's outbox backlog, recent traces, the database, pods, versions and logs. See [cmd/worker/README.md](cmd/worker/README.md).
 
-Their sources are `k8s/dashboards/*.json`, one ConfigMap each. `make deploy` loads them, and `make dashboard` reloads them on its own, with no release needed. To change one, edit in Grafana, export the JSON (Share > Export), save it over the file and commit.
+Their sources are `k8s/dashboards/*.json`; the kustomization makes one ConfigMap of each. `make deploy` loads them, and `make dashboard` reloads them on its own, with no release needed. To change one, edit in Grafana, export the JSON (Share > Export), save it over the file and commit.
 
 ```sh
 curl -s localhost:9464/metrics | grep http_server_request_duration_seconds_count   # with make run-api
@@ -273,7 +275,7 @@ kubectl -n importer scale deployment/importer-api --replicas=4
 
 **Change config.** Edit `WELCOME_MESSAGE` in `k8s/api/10-configmap.yaml`, then:
 ```sh
-kubectl apply -f k8s/api/ && make restart
+kubectl apply -k k8s/ -l component!=migrate && make restart
 ```
 Pods read env vars only at startup, so they need a restart to pick up the change.
 
@@ -283,7 +285,7 @@ make rollout VERSION=1.7.0
 kubectl -n importer rollout history deployment/importer-api
 kubectl -n importer rollout undo deployment/importer-api   # roll back
 ```
-`make rollout` changes the image in the cluster only. Update the image tags in `k8s/api/20-deployment.yaml` and `k8s/worker/20-deployment.yaml` too, or the next `kubectl apply` puts the old version back.
+`make rollout` changes the image in the cluster only. Update the `newTag`s in `k8s/kustomization.yaml` too, or the next `make deploy` puts the old version back.
 
 **Break a probe.** Change `readinessProbe.path` to `/nope` and apply. The new pod never becomes Ready, and because of `maxUnavailable: 0` the old pods keep serving. Check `kubectl -n importer describe pod <name>` to see the events.
 

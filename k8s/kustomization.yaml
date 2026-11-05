@@ -1,0 +1,45 @@
+# Everything the importer runs in the cluster, built with `kubectl apply -k k8s/`
+# (make deploy) and, later, by Argo CD.
+#
+# The version both services run is the newTag below: one place to change it,
+# for the Deployments and the migration Job alike.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - 00-namespace.yaml
+  - api/10-configmap.yaml
+  - api/20-deployment.yaml
+  - api/30-service.yaml
+  - api/40-podmonitor.yaml
+  - worker/10-configmap.yaml
+  - worker/20-deployment.yaml
+  - worker/40-podmonitor.yaml
+  - worker/50-rabbitmq-queues.yaml
+  - jobs/migrate.yaml
+  # Not dev/: the test database is for local runs, not part of a deploy.
+
+images:
+  - name: ghcr.io/c88lopez/importer-api
+    newTag: 1.6.0
+  - name: ghcr.io/c88lopez/importer-worker
+    newTag: 1.6.0
+
+# One ConfigMap per dashboard. Grafana's sidecar loads any ConfigMap labeled
+# grafana_dashboard, from any namespace, into the folder in grafana_folder.
+configMapGenerator:
+  - name: importer-api-dashboard
+    namespace: importer
+    files: [dashboards/importer-api.json]
+  - name: importer-worker-dashboard
+    namespace: importer
+    files: [dashboards/importer-worker.json]
+
+generatorOptions:
+  # Keep the names stable (no content hash suffix): nothing mounts these, the
+  # sidecar watches them, so there's nothing a new name would roll out.
+  disableNameSuffixHash: true
+  labels:
+    grafana_dashboard: "1"
+  annotations:
+    grafana_folder: Services

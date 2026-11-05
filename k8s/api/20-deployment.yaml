@@ -25,9 +25,10 @@ spec:
       terminationGracePeriodSeconds: 20 # time between SIGTERM and SIGKILL
       containers:
         - name: importer-api
-          # Built and pushed by .github/workflows/build.yml when a v1.6.0 tag is pushed.
-          # Pin a version tag (not :latest) so you always know what's running.
-          image: ghcr.io/c88lopez/importer-api:1.6.0
+          # Built and pushed by .github/workflows/build.yml when a v* tag is pushed.
+          # Always deploy through the kustomization (make deploy, Argo CD): applied on
+          # its own, this file has no tag and would run :latest.
+          image: ghcr.io/c88lopez/importer-api # tag: newTag in k8s/kustomization.yaml
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
