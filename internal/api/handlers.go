@@ -35,7 +35,7 @@ func NewRouter(cfg Config, s itemStore, ready *atomic.Bool, checks []checker) ht
 
 	// Readiness: "can it take traffic?" If this fails, k8s removes the pod from the Service.
 	// Pings postgres, redis and rabbitmq (see health.go).
-	mux.HandleFunc("GET /readyz", readinessHandler(ready, checks))
+	mux.HandleFunc("GET /readyz", ReadinessHandler(ready, checks))
 
 	// Info: shows which pod answered. Hit it repeatedly to watch the Service load-balance.
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {

@@ -1,0 +1,37 @@
+# gqlgen config: `make generate` (go tool gqlgen) turns schema.graphqls into
+# generated.go and models_gen.go, and adds a stub to schema.resolvers.go for
+# each new field. Edit the schema and the resolvers; never the generated files.
+schema:
+  - schema.graphqls
+exec:
+  filename: generated.go
+  package: gql
+model:
+  filename: models_gen.go
+  package: gql
+resolver:
+  layout: follow-schema
+  dir: .
+  package: gql
+  filename_template: "{name}.resolvers.go"
+
+# Leave out struct tags and getters nobody uses.
+omit_getters: true
+# [Item!]! as []items.Item, which is what the store returns.
+omit_slice_element_pointers: true
+omit_complexity: false
+
+models:
+  # Item IDs are BIGINTs; GraphQL sends IDs as strings, like the REST API does.
+  ID:
+    model: github.com/vandelay-labs/importer/internal/gql/scalar.Int64ID
+  Time:
+    model: github.com/99designs/gqlgen/graphql.Time
+  Item:
+    model: github.com/vandelay-labs/importer/internal/items.Item
+    fields:
+      # Stored as "import"/"pending"; the schema has enums, so these map them.
+      kind:
+        resolver: true
+      status:
+        resolver: true

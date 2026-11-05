@@ -1,4 +1,4 @@
-# One Dockerfile for both services: APP picks the binary (api or worker).
+# One Dockerfile for every service: APP picks the binary (api, worker or graphql).
 #   docker build --build-arg APP=worker -t importer-worker .
 #
 # --- build stage: compile a static binary ---

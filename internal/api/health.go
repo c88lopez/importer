@@ -102,11 +102,11 @@ func markCritical(checks []checker, names []string) error {
 	return nil
 }
 
-// readinessHandler returns 503 while the pod is shutting down or a critical
+// ReadinessHandler (also used by importer-graphql) returns 503 while the pod is shutting down or a critical
 // dependency is down. A non-critical failure returns 200 with status
 // "degraded", so it's visible without pulling the pod out of the Service.
 // Checks run concurrently.
-func readinessHandler(ready *atomic.Bool, checks []checker) http.HandlerFunc {
+func ReadinessHandler(ready *atomic.Bool, checks []checker) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !ready.Load() {
 			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"status": "shutting down"})

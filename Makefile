@@ -1,11 +1,11 @@
-# Both services build from this repo and share a version: one tag releases
-# both images, and Argo CD rolls out both. The version deployed is the newTag
+# All services build from this repo and share a version: one tag releases
+# every image, and Argo CD rolls them all out. The version deployed is the newTag
 # in k8s/kustomization.yaml; VERSION defaults to it.
 VERSION   ?= $(shell sed -n "s/^ *newTag: *//p" k8s/kustomization.yaml | head -1)
 REGISTRY  := ghcr.io/c88lopez
 NAMESPACE := importer
 
-.PHONY: tunnel dev-setup run-api run-worker test build image migrate-local migration release secrets status logs restart
+.PHONY: tunnel dev-setup run-api run-worker run-graphql generate test build image migrate-local migration release secrets status logs restart
 
 ## --- local ---
 # Local runs use the cluster's Postgres and RabbitMQ through `make tunnel`,
@@ -51,18 +51,28 @@ run-worker: export RABBITMQ_URL = $(LOCAL_RABBITMQ_URL)
 run-worker: ## run the worker on your machine against the cluster (needs make tunnel): probes and metrics on :9465
 	PORT=9465 go run ./cmd/worker
 
+# Ports 8081 and 9466, so it runs next to run-api.
+run-graphql: export DATABASE_URL = $(LOCAL_DATABASE_URL)
+run-graphql: export RABBITMQ_URL = $(LOCAL_RABBITMQ_URL)
+run-graphql: ## run the GraphQL service on your machine against the cluster (needs make tunnel): GraphiQL on :8081, metrics on :9466
+	PORT=8081 METRICS_PORT=9466 go run ./cmd/graphql
+
+generate: ## regenerate the GraphQL code after editing internal/gql/schema.graphqls
+	cd internal/gql && go tool gqlgen generate --config gqlgen.yml
+
 # -p 1: packages share the test database, so they run one at a time.
 test: export TEST_DATABASE_URL = $(LOCAL_TEST_DATABASE_URL)
 test: export TEST_RABBITMQ_URL = $(LOCAL_TEST_RABBITMQ_URL)
 test: ## unit tests, plus Postgres and RabbitMQ tests in the cluster's test database and vhost (needs make tunnel)
 	go test -p 1 ./...
 
-build: ## build both binaries into bin/
+build: ## build every binary into bin/
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/importer-api ./cmd/api
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/importer-worker ./cmd/worker
+	go build -ldflags "-X main.version=$(VERSION)" -o bin/importer-graphql ./cmd/graphql
 
 APP ?= api
-image: ## build one image locally to try it: make image [APP=worker] (CI builds the ones the cluster uses)
+image: ## build one image locally to try it: make image [APP=worker|graphql] (CI builds the ones the cluster uses)
 	docker build --build-arg APP=$(APP) --build-arg VERSION=$(VERSION) -t $(REGISTRY)/importer-$(APP):$(VERSION) .
 
 # This is the real `app` database: an unreleased migration applied here is
@@ -83,11 +93,12 @@ release: ## tag a version: CI builds both images, Argo CD deploys them: make rel
 	git tag v$(VERSION)
 	git push origin v$(VERSION)
 
-# Each service gets its own Secret with only what it uses. The worker uses
-# the same database user as the API: it updates the API's items table.
+# Each service gets its own Secret with only what it uses. The worker and the
+# GraphQL service use the same database user as the API: they share its items
+# table.
 # --server-side: a client-side `kubectl apply` would keep a plain-text copy of
 # the URLs (with their passwords) in the last-applied-configuration annotation.
-secrets: ## create or update both Secrets from the cluster's Postgres, RabbitMQ and Redis Secrets
+secrets: ## create or update the services' Secrets from the cluster's Postgres, RabbitMQ and Redis Secrets
 	kubectl apply -f k8s/00-namespace.yaml
 	kubectl -n $(NAMESPACE) create secret generic importer-api-deps \
 	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
@@ -95,6 +106,10 @@ secrets: ## create or update both Secrets from the cluster's Postgres, RabbitMQ 
 	  --from-literal=REDIS_URL="redis://:$$(kubectl -n default get secret redis-secret -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d)@redis.default.svc.cluster.local:6379/0" \
 	  --dry-run=client -o yaml | kubectl apply --server-side -f -
 	kubectl -n $(NAMESPACE) create secret generic importer-worker-deps \
+	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
+	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
+	  --dry-run=client -o yaml | kubectl apply --server-side -f -
+	kubectl -n $(NAMESPACE) create secret generic importer-graphql-deps \
 	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
 	  --dry-run=client -o yaml | kubectl apply --server-side -f -

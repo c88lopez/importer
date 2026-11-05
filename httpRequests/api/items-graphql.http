@@ -1,0 +1,142 @@
+# The same requests as items.http, against importer-graphql, to compare REST
+# and GraphQL side by side. Same environments: "local" (make tunnel, then make
+# run-graphql) or "k8s" (the cluster's NodePort). Same database, so items
+# created here show up in items.http too, and the other way round.
+#
+# GraphiQL, to explore the schema with autocomplete: open {{graphqlHost}}/
+# in a browser.
+#
+# Things to notice against items.http:
+# - One URL and one method (POST /graphql) for everything; the query says what
+#   to do.
+# - The client picks the fields: "List names only" returns nothing else.
+# - Errors come back as HTTP 200 with an "errors" list (except a query the
+#   schema rejects, which gets 422); "not found" is just null.
+# - kind and status are enums: IMPORT, PENDING, ... instead of strings.
+#
+# Run "Create an import" first: it saves the new id as {{itemId}}, which the
+# get and delete requests below use.
+
+### List all items, oldest first
+GRAPHQL {{graphqlHost}}/graphql
+
+query Items {
+  items { id name kind status createdAt processedAt }
+}
+
+> {%
+    client.test("returns a list", () => {
+        client.assert(response.status === 200, "status " + response.status);
+        client.assert(Array.isArray(response.body.data.items), "data.items is not an array");
+    });
+%}
+
+### List names only: the client picks the fields
+GRAPHQL {{graphqlHost}}/graphql
+
+query ItemNames {
+  items { name }
+}
+
+### Create an import
+GRAPHQL {{graphqlHost}}/graphql
+
+mutation CreateImport($input: CreateItemInput!) {
+  createItem(input: $input) { id name kind status }
+}
+
+{
+  "input": { "name": "{{importName}}", "kind": "IMPORT" }
+}
+
+> {%
+    client.test("returns the new item", () => {
+        client.assert(!response.body.errors, JSON.stringify(response.body.errors));
+        client.assert(typeof response.body.data.createItem.id === "string", "id should be a string");
+    });
+    client.global.set("itemId", response.body.data.createItem.id);
+%}
+
+### Create an export
+GRAPHQL {{graphqlHost}}/graphql
+
+mutation CreateExport($input: CreateItemInput!) {
+  createItem(input: $input) { id name kind status }
+}
+
+{
+  "input": { "name": "{{exportName}}", "kind": "EXPORT" }
+}
+
+### Get the item created above (status goes PENDING -> DONE once the worker has it)
+GRAPHQL {{graphqlHost}}/graphql
+
+query Item($id: ID!) {
+  item(id: $id) { id name kind status processedAt }
+}
+
+{ "id": "{{itemId}}" }
+
+### Two queries in one request: something REST needs two calls for
+GRAPHQL {{graphqlHost}}/graphql
+
+query ItemAndAllIDs($id: ID!) {
+  item(id: $id) { name status }
+  all: items { id }
+}
+
+{ "id": "{{itemId}}" }
+
+### Delete the item created above (true; running it again gives false)
+GRAPHQL {{graphqlHost}}/graphql
+
+mutation Delete($id: ID!) {
+  deleteItem(id: $id)
+}
+
+{ "id": "{{itemId}}" }
+
+### Get an id that doesn't exist (null, not an error)
+GRAPHQL {{graphqlHost}}/graphql
+
+query Missing {
+  item(id: "999999") { id }
+}
+
+### Non-numeric id (an error on the argument)
+GRAPHQL {{graphqlHost}}/graphql
+
+query BadID {
+  item(id: "abc") { id }
+}
+
+### Validation: name is required (BAD_USER_INPUT)
+GRAPHQL {{graphqlHost}}/graphql
+
+mutation BlankName {
+  createItem(input: { name: "   ", kind: IMPORT }) { id }
+}
+
+### Validation: kind must be IMPORT or EXPORT (the schema rejects it: 422)
+GRAPHQL {{graphqlHost}}/graphql
+
+mutation BadKind {
+  createItem(input: { name: "latex", kind: SMUGGLE }) { id }
+}
+
+### Validation: a field that doesn't exist (422)
+GRAPHQL {{graphqlHost}}/graphql
+
+query UnknownField {
+  items { price }
+}
+
+### The schema itself (what GraphiQL uses for autocomplete)
+GRAPHQL {{graphqlHost}}/graphql
+
+query Types {
+  __schema { types { name kind } }
+}
+
+### Readiness probe: status of postgres and rabbitmq (redis is skipped)
+GET {{graphqlHost}}/readyz

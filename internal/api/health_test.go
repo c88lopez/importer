@@ -63,7 +63,7 @@ func TestReadyz(t *testing.T) {
 			var ready atomic.Bool
 			ready.Store(true)
 			rec := httptest.NewRecorder()
-			readinessHandler(&ready, tt.checks)(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+			ReadinessHandler(&ready, tt.checks)(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 
 			if rec.Code != tt.wantCode {
 				t.Fatalf("got %d, want %d", rec.Code, tt.wantCode)
@@ -106,7 +106,7 @@ func TestReadyzShuttingDown(t *testing.T) {
 	checks := []checker{{"postgres", true, func(ctx context.Context) error { called = true; return nil }}}
 
 	rec := httptest.NewRecorder()
-	readinessHandler(&ready, checks)(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	ReadinessHandler(&ready, checks)(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("got %d, want 503", rec.Code)
