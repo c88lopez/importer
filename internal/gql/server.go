@@ -27,8 +27,10 @@ import (
 // sending one huge query; it isn't tuned beyond that.
 const maxComplexity = 200
 
-// NewRouter serves GraphQL on /graphql, GraphiQL on / (to try queries in the
-// browser), and the probes. readyz is the same readiness check as the API's.
+// NewRouter serves GraphQL on /graphql, GraphiQL on GET / (to try queries in
+// the browser), and the probes. readyz is the same readiness check as the
+// API's. POST / is GraphQL too, so a client pointed at the bare host (as
+// Postman suggests) works instead of getting 405.
 func NewRouter(store itemStore, version string, readyz http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -37,7 +39,9 @@ func NewRouter(store itemStore, version string, readyz http.Handler) http.Handle
 	})
 	mux.Handle("GET /readyz", readyz)
 	mux.Handle("GET /{$}", playground.Handler(fmt.Sprintf("importer-graphql %s (%s)", version, hostname()), "/graphql"))
-	mux.Handle("/graphql", requireGraphQLContentType(http.MaxBytesHandler(NewHandler(store), 1<<20)))
+	gql := requireGraphQLContentType(http.MaxBytesHandler(NewHandler(store), 1<<20))
+	mux.Handle("/graphql", gql)
+	mux.Handle("POST /{$}", gql)
 	return mux
 }
 

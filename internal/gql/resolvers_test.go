@@ -169,19 +169,22 @@ func TestContentTypes(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	tests := []struct {
-		name, contentType, body string
-		wantStatus              int
-		wantBody                string
+		name, path, contentType, body string
+		wantStatus                    int
+		wantBody                      string
 	}{
-		{"json", "application/json", `{"query":"{ items { id } }"}`, http.StatusOK, `{"data":{"items":[]}}`},
-		{"raw query", "application/graphql", `{ items { id } }`, http.StatusOK, `{"data":{"items":[]}}`},
+		{"json", "/graphql", "application/json", `{"query":"{ items { id } }"}`, http.StatusOK, `{"data":{"items":[]}}`},
+		{"raw query", "/graphql", "application/graphql", `{ items { id } }`, http.StatusOK, `{"data":{"items":[]}}`},
+		// Postman and others default to the bare host.
+		{"json on /", "/", "application/json", `{"query":"{ items { id } }"}`, http.StatusOK, `{"data":{"items":[]}}`},
 		// What curl -d sends without -H: refused, with a hint (and against CSRF).
-		{"form", "application/x-www-form-urlencoded", `{"query":"{ items { id } }"}`, http.StatusUnsupportedMediaType, "Content-Type: application/json"},
-		{"none", "", `{"query":"{ items { id } }"}`, http.StatusUnsupportedMediaType, "Content-Type: application/json"},
+		{"form", "/graphql", "application/x-www-form-urlencoded", `{"query":"{ items { id } }"}`, http.StatusUnsupportedMediaType, "Content-Type: application/json"},
+		{"form on /", "/", "application/x-www-form-urlencoded", `{"query":"{ items { id } }"}`, http.StatusUnsupportedMediaType, "Content-Type: application/json"},
+		{"none", "/graphql", "", `{"query":"{ items { id } }"}`, http.StatusUnsupportedMediaType, "Content-Type: application/json"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req, _ := http.NewRequest(http.MethodPost, srv.URL+"/graphql", strings.NewReader(tt.body))
+			req, _ := http.NewRequest(http.MethodPost, srv.URL+tt.path, strings.NewReader(tt.body))
 			if tt.contentType != "" {
 				req.Header.Set("Content-Type", tt.contentType)
 			}
