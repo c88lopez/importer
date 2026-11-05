@@ -1,0 +1,49 @@
+# The same items as the REST API (/api/items), over GraphQL. Both write to the
+# same table, so an item created on one shows up on the other.
+
+"""
+Something to import or export. New items are PENDING until importer-worker
+processes them.
+"""
+type Item {
+  id: ID!
+  name: String!
+  kind: Kind!
+  status: Status!
+  createdAt: Time!
+  "When importer-worker processed it; null while PENDING."
+  processedAt: Time
+}
+
+enum Kind {
+  IMPORT
+  EXPORT
+}
+
+enum Status {
+  PENDING
+  DONE
+}
+
+"An RFC 3339 timestamp, e.g. 2026-11-05T04:13:43Z."
+scalar Time
+
+type Query {
+  "Every item, oldest first."
+  items: [Item!]!
+  "One item, or null if there's none with that id."
+  item(id: ID!): Item
+}
+
+input CreateItemInput {
+  "Must not be blank; surrounding spaces are trimmed."
+  name: String!
+  kind: Kind!
+}
+
+type Mutation {
+  "Creates a PENDING item and announces it to importer-worker."
+  createItem(input: CreateItemInput!): Item!
+  "True if the item existed and was deleted, false if there was none."
+  deleteItem(id: ID!): Boolean!
+}

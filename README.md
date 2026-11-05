@@ -1,8 +1,9 @@
 # importer
 
-Two Go services, for learning how apps get from source code to running in Kubernetes:
+Three Go services, for learning how apps get from source code to running in Kubernetes:
 
 - **importer-api**: a REST API for items (standard library HTTP). Creating an item announces it on RabbitMQ.
+- **importer-graphql**: the same items over GraphQL (gqlgen), to compare the two styles. See [GraphQL](#graphql).
 - **importer-worker**: consumes those events and processes the items. See [cmd/worker/README.md](cmd/worker/README.md).
 
 They share a Postgres database, its schema, the event contract and a version, so they live in one repo and one Go module:
@@ -10,13 +11,15 @@ They share a Postgres database, its schema, the event contract and a version, so
 ```
 cmd/api/              importer-api: wiring (config, servers, shutdown); `importer-api migrate` runs migrations
 cmd/worker/           importer-worker: wiring
-internal/api/         HTTP routes, health checks, middleware
+cmd/graphql/          importer-graphql: wiring
+internal/api/         HTTP routes, health checks, middleware (the GraphQL service reuses the last two)
+internal/gql/         the GraphQL schema, its resolvers and generated code
 internal/worker/      RabbitMQ consumer and the item processor
-internal/items/       the Item model and its Postgres store, used by both
+internal/items/       the Item model and its Postgres store, used by all three
 internal/outbox/      transactional outbox and its relay to RabbitMQ
 internal/events/      the RabbitMQ contract: exchange, routing keys, trace headers
 internal/database/    connection pool and migrations (dbtest: a test database for tests)
-internal/telemetry/   tracing, metrics and logs, set up the same way in both
+internal/telemetry/   tracing, metrics and logs, set up the same way in each
 migrations/           the schema, embedded in importer-api
 k8s/                  the "importer" namespace: kustomization.yaml (what a deploy applies, and the version), api/, worker/, jobs/ (migrations), dashboards/, dev/
 ```
@@ -90,13 +93,49 @@ Critical vs. non-critical is the same idea one level down: only take the pod out
 
 Try it: point `DATABASE_URL` at a host that doesn't exist, then run `kubectl -n importer get pods -w`. The pods show `0/1 READY` but `RESTARTS` stays at 0, and `curl http://192.168.68.57:30080/` fails because the Service has no ready pods behind it. `kubectl -n importer get endpointslices` shows the pod IPs marked not ready.
 
+## GraphQL
+
+importer-graphql serves the same items as the REST API, from the same table, through one endpoint, `POST /graphql`. Open `/` in a browser for GraphiQL, which autocompletes from the schema. The schema is [internal/gql/schema.graphqls](internal/gql/schema.graphqls):
+
+```graphql
+type Query {
+  items: [Item!]!
+  item(id: ID!): Item
+}
+type Mutation {
+  createItem(input: CreateItemInput!): Item!
+  deleteItem(id: ID!): Boolean!
+}
+```
+
+`createItem` goes through the same `items.Store` as `POST /api/items`: one transaction for the item and its outbox event. importer-worker processes it whichever service created it. `httpRequests/api/items-graphql.http` has the same requests as `items.http`, so you can run them side by side.
+
+| | REST (importer-api) | GraphQL (importer-graphql) |
+| --- | --- | --- |
+| Endpoints | One URL per resource, the method says what to do | One URL; the query says what to do |
+| Response shape | Fixed by the server: every field, every time | Chosen by the client, per request |
+| Several things at once | One request each | One request, several fields (`item` and `items` together) |
+| Not found | `404` | `null`, with HTTP 200 |
+| Bad input | `400` with `{"error": ...}` | HTTP 200 with an `errors` list (`BAD_USER_INPUT`); a query the schema rejects (unknown field or enum value) gets `422` |
+| Server error | `500 internal error` | HTTP 200, `errors: [{"message": "internal error"}]` |
+| Types | Documented by convention; `kind` is a string | In the schema, checked on every request; `kind` is an enum (`IMPORT`) |
+| HTTP caching | `GET` responses can be cached by URL | Mostly `POST`, so no HTTP caching |
+| Traces | A span per route: `GET /api/items/{id}` | `POST /graphql`, with a child span per operation: `query Item` |
+| Code | Hand-written handlers | Schema first: `make generate` writes the plumbing, you write the resolvers |
+
+A few things only GraphQL needs:
+
+- **A complexity limit.** One query can ask for the same list many times over with aliases. Each field costs 1, and a query over 200 is rejected before it runs.
+- **Generated code.** Edit `schema.graphqls`, run `make generate`, then fill in any new resolver stubs in `schema.resolvers.go`. CI fails if the generated code is out of date.
+- **Name your operations** (`query Items { ... }`). The name shows up in traces and logs; anonymous queries all look alike.
+
 ## Run locally
 
-There are no local copies of the dependencies: `make run-api`, `make run-worker` and `make test` use the cluster's Postgres and RabbitMQ through `kubectl port-forward`. The Makefile reads the credentials from their Secrets in `default`.
+There are no local copies of the dependencies: `make run-api`, `make run-graphql` (GraphiQL on http://localhost:8081), `make run-worker` and `make test` use the cluster's Postgres and RabbitMQ through `kubectl port-forward`. The Makefile reads the credentials from their Secrets in `default`.
 
 | | Postgres | RabbitMQ |
 | --- | --- | --- |
-| `make run-api`, `make run-worker`, `make migrate-local` | `app`, the real database | vhost `/`, the real exchange |
+| `make run-api`, `make run-graphql`, `make run-worker`, `make migrate-local` | `app`, the real database | vhost `/`, the real exchange |
 | `make test` | `importer_test` | vhost `importer-test` |
 
 The tests truncate tables and create and delete exchanges, so they get their own database and vhost. `k8s/dev/test-database.yaml` declares the database as a CloudNativePG `Database` owned by the `app` user.
@@ -105,6 +144,7 @@ The tests truncate tables and create and delete exchanges, so they get their own
 make dev-setup      # once: create importer_test and the importer-test vhost
 make tunnel         # in its own terminal: Postgres on 5433, RabbitMQ on 5673 (UI on 15673)
 make run-api        # :8080, metrics on :9464
+make run-graphql    # optional, in another terminal: GraphiQL on :8081, metrics on :9466
 make run-worker     # optional, in another terminal: probes and metrics on :9465
 curl -XPOST localhost:8080/api/items -d '{"name":"latex","kind":"import"}'
 curl localhost:8080/api/items
