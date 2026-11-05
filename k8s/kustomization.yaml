@@ -21,9 +21,11 @@ resources:
 
 images:
   - name: ghcr.io/c88lopez/importer-api
-    newTag: 1.6.0
+    newTag: 1.7.0
+    newName: ghcr.io/c88lopez/importer-api
   - name: ghcr.io/c88lopez/importer-worker
-    newTag: 1.6.0
+    newTag: 1.7.0
+    newName: ghcr.io/c88lopez/importer-worker
 
 # One ConfigMap per dashboard. Grafana's sidecar loads any ConfigMap labeled
 # grafana_dashboard, from any namespace, into the folder in grafana_folder.
