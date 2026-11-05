@@ -43,6 +43,9 @@ configMapGenerator:
   - name: importer-worker-dashboard
     namespace: importer
     files: [dashboards/importer-worker.json]
+  - name: importer-graphql-dashboard
+    namespace: importer
+    files: [dashboards/importer-graphql.json]
 
 generatorOptions:
   # Keep the names stable (no content hash suffix): nothing mounts these, the

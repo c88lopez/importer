@@ -51,6 +51,7 @@ func SetupMetrics(ctx context.Context, svc Service) (http.Handler, func(context.
 			latencyBuckets("http.server.request.duration"),
 			latencyBuckets("db.client.operation.duration"),
 			latencyBuckets("messaging.process.duration"),
+			latencyBuckets("graphql.server.operation.duration"),
 		),
 	)
 	otel.SetMeterProvider(mp)

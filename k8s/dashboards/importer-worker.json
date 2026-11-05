@@ -45,7 +45,7 @@
         "refresh": 2,
         "multi": true,
         "includeAll": true,
-        "allValue": ".*",
+        "allValue": "importer-worker-.*",
         "current": {
           "selected": true,
           "text": [
