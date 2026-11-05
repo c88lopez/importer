@@ -6,11 +6,20 @@
 #   pull request      -> build only, nothing is pushed
 name: build
 
+# Only when something that goes into the images or the tests changes: a
+# commit that only touches manifests (Argo CD deploys those), docs or request
+# files runs nothing. Path filters don't apply to tags, so a release always
+# builds.
 on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths-ignore: &non-code
+      - "k8s/**"
+      - "httpRequests/**"
+      - "**.md"
   pull_request:
+    paths-ignore: *non-code
 
 permissions:
   contents: read
