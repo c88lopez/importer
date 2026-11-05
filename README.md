@@ -168,7 +168,9 @@ That's the whole release:
 2. Argo CD Image Updater sees the new `1.x.y` tags (it checks every 2 minutes) and commits them as the `newTag`s on `main`, as `argocd-image-updater`.
 3. Argo CD syncs that commit: the migration Job first, then both Deployments roll out.
 
-It takes about 5 minutes; `git pull` shows the commit, and the Argo CD UI shows the sync. To roll back, revert that commit. Image Updater only moves forward within major version 1: a `2.0.0` needs its rule changed in the platform repo.
+It takes about 2 minutes after CI finishes; `git pull` shows the commit, and the Argo CD UI shows the sync.
+
+To roll back, first tell Image Updater to skip the bad version: add it to `ignoreTags` in `manifests/argocd/importer-image-updater.yaml` in the platform repo and `make argocd-apps` there. Then revert its commit here. Reverting alone doesn't stick: on its next check Image Updater sees the bad tag is still the newest and commits it again. Usually it's simpler to fix forward with the next patch release. Image Updater only moves forward within major version 1: a `2.0.0` needs its rule changed in the platform repo.
 
 ## Deploy
 
@@ -292,7 +294,7 @@ kubectl -n importer get pods -w   # in one terminal
 make release VERSION=1.7.0        # in another
 kubectl -n importer rollout history deployment/importer-api
 ```
-To roll back, revert Image Updater's commit on `main`. `kubectl rollout undo` works too, but only until the next sync.
+To roll back, see [How the image is built](#how-the-image-is-built). `kubectl rollout undo` works too, but only until the next sync.
 
 **Break a probe.** `kubectl -n importer edit deployment importer-api` and change `readinessProbe.path` to `/nope`. The new pod never becomes Ready, and because of `maxUnavailable: 0` the old pods keep serving. Check `kubectl -n importer describe pod <name>` to see the events.
 
