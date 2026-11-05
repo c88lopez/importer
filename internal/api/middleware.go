@@ -3,8 +3,8 @@ package api
 import (
 	"log/slog"
 	"net/http"
-	"time"
 
+	"github.com/felixge/httpsnoop"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
@@ -26,14 +26,14 @@ func TraceRequests(next http.Handler) http.Handler {
 	)
 }
 
-// LogRequests logs one line per request, with its trace_id when traced.
+// LogRequests logs one line per request, with its status and, when traced,
+// its trace_id.
 func LogRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		next.ServeHTTP(w, r)
+		m := httpsnoop.CaptureMetrics(next, w, r)
 		if r.URL.Path == "/healthz" || r.URL.Path == "/readyz" {
 			return // probes are noisy
 		}
-		slog.InfoContext(r.Context(), "request", "method", r.Method, "path", r.URL.Path, "duration", time.Since(start).String())
+		slog.InfoContext(r.Context(), "request", "method", r.Method, "path", r.URL.Path, "status", m.Code, "duration", m.Duration.String())
 	})
 }

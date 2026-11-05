@@ -95,7 +95,7 @@ Try it: point `DATABASE_URL` at a host that doesn't exist, then run `kubectl -n 
 
 ## GraphQL
 
-importer-graphql serves the same items as the REST API, from the same table, through one endpoint, `POST /graphql`. Open `/` in a browser for GraphiQL, which autocompletes from the schema: http://192.168.68.57:30082/ in the cluster, http://localhost:8081/ with `make run-graphql`. The schema is [internal/gql/schema.graphqls](internal/gql/schema.graphqls):
+importer-graphql serves the same items as the REST API, from the same table, through one endpoint, `POST /graphql`. `POST /` works too, for clients like Postman that default to the bare host. Open `/` in a browser for GraphiQL, which autocompletes from the schema: http://192.168.68.57:30082/ in the cluster, http://localhost:8081/ with `make run-graphql`. The schema is [internal/gql/schema.graphqls](internal/gql/schema.graphqls):
 
 ```graphql
 type Query {
