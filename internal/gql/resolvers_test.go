@@ -3,6 +3,9 @@ package gql
 import (
 	"context"
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -158,5 +161,39 @@ func TestComplexityLimit(t *testing.T) {
 	err := client.New(NewHandler(&memStore{})).Post(q.String(), &resp)
 	if err == nil || !strings.Contains(err.Error(), "complexity") {
 		t.Fatalf("got %v, want a complexity error", err)
+	}
+}
+
+func TestContentTypes(t *testing.T) {
+	srv := httptest.NewServer(NewRouter(&memStore{}, "test", http.NotFoundHandler()))
+	t.Cleanup(srv.Close)
+
+	tests := []struct {
+		name, contentType, body string
+		wantStatus              int
+		wantBody                string
+	}{
+		{"json", "application/json", `{"query":"{ items { id } }"}`, http.StatusOK, `{"data":{"items":[]}}`},
+		{"raw query", "application/graphql", `{ items { id } }`, http.StatusOK, `{"data":{"items":[]}}`},
+		// What curl -d sends without -H: refused, with a hint (and against CSRF).
+		{"form", "application/x-www-form-urlencoded", `{"query":"{ items { id } }"}`, http.StatusUnsupportedMediaType, "Content-Type: application/json"},
+		{"none", "", `{"query":"{ items { id } }"}`, http.StatusUnsupportedMediaType, "Content-Type: application/json"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, _ := http.NewRequest(http.MethodPost, srv.URL+"/graphql", strings.NewReader(tt.body))
+			if tt.contentType != "" {
+				req.Header.Set("Content-Type", tt.contentType)
+			}
+			res, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer res.Body.Close()
+			body, _ := io.ReadAll(res.Body)
+			if res.StatusCode != tt.wantStatus || !strings.Contains(string(body), tt.wantBody) {
+				t.Fatalf("got %d %s, want %d containing %q", res.StatusCode, body, tt.wantStatus, tt.wantBody)
+			}
+		})
 	}
 }

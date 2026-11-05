@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 
@@ -36,7 +37,7 @@ func NewRouter(store itemStore, version string, readyz http.Handler) http.Handle
 	})
 	mux.Handle("GET /readyz", readyz)
 	mux.Handle("GET /{$}", playground.Handler(fmt.Sprintf("importer-graphql %s (%s)", version, hostname()), "/graphql"))
-	mux.Handle("/graphql", http.MaxBytesHandler(NewHandler(store), 1<<20))
+	mux.Handle("/graphql", requireGraphQLContentType(http.MaxBytesHandler(NewHandler(store), 1<<20)))
 	return mux
 }
 
@@ -47,6 +48,8 @@ func NewHandler(store itemStore) http.Handler {
 	srv.AddTransport(transport.Options{})
 	srv.AddTransport(transport.GET{})
 	srv.AddTransport(transport.POST{})
+	// The query as the whole body: curl -H 'Content-Type: application/graphql' -d '{ items { id } }'
+	srv.AddTransport(transport.GRAPHQL{})
 	// Parsed and validated queries are cached by their text.
 	srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
 	srv.Use(extension.Introspection{})
@@ -56,6 +59,31 @@ func NewHandler(store itemStore) http.Handler {
 		return internalError(ctx, fmt.Errorf("panic: %v", p))
 	})
 	return srv
+}
+
+// requireGraphQLContentType answers a POST that isn't JSON or
+// application/graphql with 415 and what to send, instead of gqlgen's bare
+// "transport not supported". curl -d without -H sends a form type, so this is
+// the usual first mistake.
+//
+// Form posts stay refused on purpose: a browser lets any web page send one
+// to another site without asking first, so any page you visit could call
+// deleteItem here (CSRF). It must ask the server before sending JSON or
+// application/graphql, and this server doesn't say yes.
+func requireGraphQLContentType(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			mediaType, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if mediaType != "application/json" && mediaType != "application/graphql" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusUnsupportedMediaType)
+				_, _ = fmt.Fprintf(w, `{"errors":[{"message":%q}]}`+"\n",
+					"POST needs Content-Type: application/json (body {\"query\": \"...\"}) or application/graphql (body is the query)")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // userError is an error the client caused and can fix. It's returned as is,

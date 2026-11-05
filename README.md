@@ -108,6 +108,20 @@ type Mutation {
 }
 ```
 
+From the command line, POST with a GraphQL content type:
+
+```sh
+# JSON, the usual way (variables go in "variables")
+curl http://192.168.68.57:30082/graphql -H 'Content-Type: application/json' \
+  -d '{"query": "{ items { id name status } }"}'
+
+# Or the bare query as the body
+curl http://192.168.68.57:30082/graphql -H 'Content-Type: application/graphql' \
+  -d '{ items { id name status } }'
+```
+
+Without `-H`, `curl -d` sends a form (`application/x-www-form-urlencoded`), and gets `415` with a reminder. Form posts are refused on purpose, against CSRF: a browser lets any web page send a form to another site without asking first, so any page you visit could call `deleteItem` here. Before sending JSON or `application/graphql` it must ask the server, which doesn't allow it.
+
 `createItem` goes through the same `items.Store` as `POST /api/items`: one transaction for the item and its outbox event. importer-worker processes it whichever service created it. `httpRequests/api/items-graphql.http` has the same requests as `items.http`, so you can run them side by side.
 
 | | REST (importer-api) | GraphQL (importer-graphql) |
@@ -120,7 +134,7 @@ type Mutation {
 | Server error | `500 internal error` | HTTP 200, `errors: [{"message": "internal error"}]` |
 | Types | Documented by convention; `kind` is a string | In the schema, checked on every request; `kind` is an enum (`IMPORT`) |
 | HTTP caching | `GET` responses can be cached by URL | Mostly `POST`, so no HTTP caching |
-| Traces | A span per route: `GET /api/items/{id}` | `POST /graphql`, with a child span per operation: `query Item` |
+| Traces | A span per route: `GET /api/items/{id}` | `/graphql` (GET or POST), with a child span per operation: `query Item` |
 | Code | Hand-written handlers | Schema first: `make generate` writes the plumbing, you write the resolvers |
 
 A few things only GraphQL needs:
