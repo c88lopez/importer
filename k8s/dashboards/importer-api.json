@@ -1828,7 +1828,7 @@
       "id": 30,
       "type": "logs",
       "title": "Migrations",
-      "description": "Output of the migration Job that runs before each deploy (make migrate).",
+      "description": "Output of the migration Job that runs before each deploy (an Argo CD PreSync hook).",
       "gridPos": {
         "x": 0,
         "y": 83,

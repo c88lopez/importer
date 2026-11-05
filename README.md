@@ -26,13 +26,13 @@ k8s/                  the "importer" namespace: kustomization.yaml (what a deplo
 ## The path from code to cluster
 
 ```
-cmd/api ──go build──▶ binary ──docker build──▶ image ──kubectl apply──▶ Deployment ──▶ ReplicaSet ──▶ Pods
+cmd/api ──go build──▶ binary ──docker build──▶ image ──Argo CD──▶ Deployment ──▶ ReplicaSet ──▶ Pods
                                                                          Service ──routes traffic──▶ ready Pods
 ```
 
 1. **Build an image.** The `Dockerfile` compiles the binary in a Go image, then copies only the binary into a small distroless image.
 2. **Make the image available to the cluster.** Docker Desktop's Kubernetes uses your local Docker images, so no registry is needed. On a real cluster you would `docker push` to a registry and the nodes would pull from it.
-3. **Describe the desired state.** The YAML files in `k8s/` describe what should exist. `kubectl apply` sends them to the API server.
+3. **Describe the desired state.** The YAML files in `k8s/` describe what should exist. Argo CD applies them (with `kubectl apply`, in effect) whenever they change on `main`.
 4. **Controllers reconcile.** The Deployment controller creates a ReplicaSet, the ReplicaSet creates Pods, the scheduler places each Pod on a node, and the kubelet on that node starts the container.
 5. **Probes gate traffic.** A Pod is added to the Service only after `/readyz` passes. If `/healthz` keeps failing, the container is restarted.
 
@@ -111,7 +111,7 @@ curl localhost:8080/api/items
 make test           # -p 1: packages share the test database
 ```
 
-Locally created items are real: they're in the same table as the cluster's, and the cluster's importer-worker processes them (unless your local worker gets there first). `make migrate-local` applies migrations to the real database, so a migration you're still writing is live before its release. Prefer `make migrate`, which runs the released image as a Job.
+Locally created items are real: they're in the same table as the cluster's, and the cluster's importer-worker processes them (unless your local worker gets there first). `make migrate-local` applies migrations to the real database, so a migration you're still writing is live before its release. Prefer releasing: each deploy runs the released image's migrations as a Job.
 
 RabbitMQ's management UI is at http://localhost:15673, with the credentials in the `rabbitmq-default-user` Secret.
 
@@ -128,7 +128,7 @@ make migrate-local MIGRATE=status
 make migrate-local MIGRATE=down                # roll back the latest one
 ```
 
-In the cluster, `make deploy` and `make rollout` first run `make migrate`. That starts `k8s/jobs/migrate.yaml`, a Job that runs `importer-api migrate up` once with the `$(VERSION)` image, and waits for it. If the migration fails, the Job fails, its logs are printed, and nothing is deployed. A Postgres advisory lock stops two runs from applying the same migration at once.
+In the cluster, every Argo CD sync first runs `k8s/jobs/migrate.yaml`, a Job that runs `importer-api migrate up` once with the version being deployed (a PreSync hook). If the migration fails, the Job fails, the sync stops, and the old pods keep running; the Job's logs are in Argo CD and on the API dashboard. A Postgres advisory lock stops two runs from applying the same migration at once.
 
 Rules that keep rolling updates safe:
 
@@ -156,29 +156,36 @@ kubectl apply ──▶ Deployment ──▶ kubelet on the node pulls the image
 | A tag `v1.2.3`      | `1.2.3`, `1.2`, `latest`      |
 | A pull request      | Built and tested, not pushed  |
 
-Both services share one version: the `newTag` in `k8s/kustomization.yaml`, which pins it exactly, so the cluster runs only what you chose. Ship a new version with:
+Both services share one version: the `newTag` in `k8s/kustomization.yaml`, which pins it exactly. Ship a new version with:
 
 ```sh
-make release VERSION=1.7.0   # pushes tag v1.7.0, and CI builds both images; wait for the Actions run to finish
-make rollout VERSION=1.7.0   # migrates, then points both Deployments at the new images
+make release VERSION=1.7.0   # pushes tag v1.7.0
 ```
 
-Then set both `newTag`s to 1.7.0 and commit, so the next `make deploy` keeps it.
+That's the whole release:
+
+1. CI builds and pushes both images.
+2. Argo CD Image Updater sees the new `1.x.y` tags (it checks every 2 minutes) and commits them as the `newTag`s on `main`, as `argocd-image-updater`.
+3. Argo CD syncs that commit: the migration Job first, then both Deployments roll out.
+
+It takes about 5 minutes; `git pull` shows the commit, and the Argo CD UI shows the sync. To roll back, revert that commit. Image Updater only moves forward within major version 1: a `2.0.0` needs its rule changed in the platform repo.
 
 ## Deploy
 
 The cluster is Docker Desktop on another PC (`192.168.68.57`); `kubectl config current-context` prints `docker-desktop`. Postgres, RabbitMQ and Redis already run in its `default` namespace.
 
-Both services run in the `importer` namespace. Each has its own Secret, with only the connection URLs it uses.
+Both services run in the `importer` namespace. Each has its own Secret, with only the connection URLs it uses. Secrets aren't in Git, so they're the one thing you create by hand:
 
 ```sh
 make secrets        # once: copies the connection URLs from the Secrets in `default`
-make deploy         # migration Job, then `kubectl apply -k k8s/`: the API, the worker and the dashboards
+```
+
+Everything else is deployed by Argo CD (http://192.168.68.57:30081), from `k8s/` on `main`: the `importer` Application in the [platform repo](https://github.com/c88lopez/platform). Any commit that changes `k8s/` (a ConfigMap, a dashboard, a new version) is live within about 3 minutes.
+
+```sh
 make status
 curl http://192.168.68.57:30080/readyz
 ```
-
-`make undeploy` removes both services, but keeps the namespace and its Secrets.
 
 ## Tracing
 
@@ -247,7 +254,7 @@ Grafana has one dashboard per service, in the *Services* folder:
 - **Importer API** shows requests, errors, latency, database calls, the connection pool, pod CPU and memory against their limits, restarts, version history, recent traces and logs. Deploy markers come from each pod's `server starting` log line.
 - **Importer Worker** shows messages by outcome (done, requeued, dead-lettered), processing time, the queue, its consumers, the dead-letter queue, the API's outbox backlog, recent traces, the database, pods, versions and logs. See [cmd/worker/README.md](cmd/worker/README.md).
 
-Their sources are `k8s/dashboards/*.json`; the kustomization makes one ConfigMap of each. `make deploy` loads them, and `make dashboard` reloads them on its own, with no release needed. To change one, edit in Grafana, export the JSON (Share > Export), save it over the file and commit.
+Their sources are `k8s/dashboards/*.json`; the kustomization makes one ConfigMap of each. To change one, edit in Grafana, export the JSON (Share > Export), save it over the file and push it to `main`; Argo CD loads it, with no release needed.
 
 ```sh
 curl -s localhost:9464/metrics | grep http_server_request_duration_seconds_count   # with make run-api
@@ -273,21 +280,21 @@ kubectl -n importer delete pod <name>  # in another
 kubectl -n importer scale deployment/importer-api --replicas=4
 ```
 
-**Change config.** Edit `WELCOME_MESSAGE` in `k8s/api/10-configmap.yaml`, then:
+**Change config.** Edit `WELCOME_MESSAGE` in `k8s/api/10-configmap.yaml` and push it to `main`. Once Argo CD has synced it:
 ```sh
-kubectl apply -k k8s/ -l component!=migrate && make restart
+make restart
 ```
 Pods read env vars only at startup, so they need a restart to pick up the change.
 
-**Rolling update.** Ship a "new version" and watch old pods drain while new ones come up:
+**Rolling update.** Release a new version and watch old pods drain while new ones come up:
 ```sh
-make rollout VERSION=1.7.0
+kubectl -n importer get pods -w   # in one terminal
+make release VERSION=1.7.0        # in another
 kubectl -n importer rollout history deployment/importer-api
-kubectl -n importer rollout undo deployment/importer-api   # roll back
 ```
-`make rollout` changes the image in the cluster only. Update the `newTag`s in `k8s/kustomization.yaml` too, or the next `make deploy` puts the old version back.
+To roll back, revert Image Updater's commit on `main`. `kubectl rollout undo` works too, but only until the next sync.
 
-**Break a probe.** Change `readinessProbe.path` to `/nope` and apply. The new pod never becomes Ready, and because of `maxUnavailable: 0` the old pods keep serving. Check `kubectl -n importer describe pod <name>` to see the events.
+**Break a probe.** `kubectl -n importer edit deployment importer-api` and change `readinessProbe.path` to `/nope`. The new pod never becomes Ready, and because of `maxUnavailable: 0` the old pods keep serving. Check `kubectl -n importer describe pod <name>` to see the events.
 
 **Inspect.**
 ```sh
@@ -298,12 +305,9 @@ kubectl -n importer get events --sort-by=.lastTimestamp
 
 ## Clean up
 
-```sh
-make undeploy
-```
+Remove `manifests/argocd/importer*.yaml` from the platform repo, so `make argocd-apps` doesn't bring it back. Then delete the `importer` Application in the Argo CD UI with *Foreground* propagation: that deletes everything it deployed, the namespace and its Secrets included. `kubectl delete application importer` deletes only the Application and leaves the app running.
 
 ## Next steps
 
 - Package the manifests as a **Helm chart** (`helm create`), then compare it with the plain YAML.
 - Add an **Ingress** (for example, ingress-nginx) instead of NodePort.
-- Push the image to a registry (GHCR or Docker Hub) and deploy with a GitOps tool like **Argo CD**.
