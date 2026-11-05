@@ -16,10 +16,6 @@ import (
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // maxComplexity caps how much work one query can ask for. Every field counts
@@ -58,7 +54,7 @@ func NewHandler(store itemStore) http.Handler {
 	srv.SetQueryCache(lru.New[*ast.QueryDocument](1000))
 	srv.Use(extension.Introspection{})
 	srv.Use(extension.FixedComplexityLimit(maxComplexity))
-	srv.Use(operationTracer{tracer: otel.Tracer("github.com/vandelay-labs/importer/internal/gql")})
+	srv.Use(newOperationTelemetry())
 	srv.SetRecoverFunc(func(ctx context.Context, p any) error {
 		return internalError(ctx, fmt.Errorf("panic: %v", p))
 	})
@@ -111,47 +107,6 @@ func internalError(ctx context.Context, err error) error {
 		Message:    "internal error",
 		Path:       graphql.GetPath(ctx),
 		Extensions: map[string]any{"code": "INTERNAL_SERVER_ERROR"},
-	}
-}
-
-// operationTracer adds a span per operation, named like "query Items", under
-// the request's "POST /graphql" span, so traces of different operations can
-// be told apart. Resolvers (and their database spans) run inside it.
-type operationTracer struct {
-	tracer trace.Tracer
-}
-
-var _ interface {
-	graphql.HandlerExtension
-	graphql.OperationInterceptor
-} = operationTracer{}
-
-func (operationTracer) ExtensionName() string                   { return "OperationTracer" }
-func (operationTracer) Validate(graphql.ExecutableSchema) error { return nil }
-
-func (t operationTracer) InterceptOperation(ctx context.Context, next graphql.OperationHandler) graphql.ResponseHandler {
-	oc := graphql.GetOperationContext(ctx)
-	opType := "query"
-	if oc.Operation != nil {
-		opType = string(oc.Operation.Operation)
-	}
-	name := opType
-	if oc.OperationName != "" {
-		name += " " + oc.OperationName
-	}
-	ctx, span := t.tracer.Start(ctx, name, trace.WithAttributes(
-		attribute.String("graphql.operation.type", opType),
-		attribute.String("graphql.operation.name", oc.OperationName),
-		attribute.String("graphql.document", oc.RawQuery),
-	))
-	responses := next(ctx)
-	return func(ctx context.Context) *graphql.Response {
-		resp := responses(ctx)
-		if resp != nil && len(resp.Errors) > 0 {
-			span.SetStatus(codes.Error, resp.Errors.Error())
-		}
-		span.End() // queries and mutations have exactly one response
-		return resp
 	}
 }
 

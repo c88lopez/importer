@@ -36,7 +36,7 @@
         "refresh": 2,
         "multi": true,
         "includeAll": true,
-        "allValue": ".*",
+        "allValue": "importer-api-.*",
         "current": {
           "selected": true,
           "text": [

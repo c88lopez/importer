@@ -303,6 +303,7 @@ Each pod serves Prometheus metrics on port 9464 (`/metrics`), separate from the 
 | `db_client_operation_duration_seconds` | Database calls by `pgx_operation_type` (`query`, `acquire`, `connect`, `prepare`) |
 | `pgxpool_*` | Connection pool: in use, idle, max |
 | `messaging_client_sent_messages_total` | Events published and confirmed, by `messaging_rabbitmq_destination_routing_key` |
+| `graphql_server_operation_duration_seconds` | importer-graphql only: operations by `graphql_operation_type`, `graphql_operation_name` and, when it failed, `error_type` (e.g. `BAD_USER_INPUT`). Every operation is the same `/graphql` request to the HTTP metric, so this is the one that tells them apart. Names past the first 100 per pod are `_OTHER`, so clients can't create unlimited series. |
 | `outbox_pending`, `outbox_oldest_age_seconds` | Events waiting in the outbox, and how long the oldest has waited. A growing age means events aren't leaving. |
 | `go_*`, `process_*` | Go runtime and process |
 
@@ -310,6 +311,9 @@ Grafana has one dashboard per service, in the *Services* folder:
 
 - **Importer API** shows requests, errors, latency, database calls, the connection pool, pod CPU and memory against their limits, restarts, version history, recent traces and logs. Deploy markers come from each pod's `server starting` log line.
 - **Importer Worker** shows messages by outcome (done, requeued, dead-lettered), processing time, the queue, its consumers, the dead-letter queue, the API's outbox backlog, recent traces, the database, pods, versions and logs. See [cmd/worker/README.md](cmd/worker/README.md).
+- **Importer GraphQL** shows operations by name, their errors by code, requests rejected before running (422, 415), latency per operation, a comparison with the REST API (requests, p95 latency, response size), recent traces, the database, pods, versions and logs.
+
+Each dashboard's *Pod* filter only lists, and with *All* only matches, that service's pods: the services share the namespace and many metric names.
 
 Their sources are `k8s/dashboards/*.json`; the kustomization makes one ConfigMap of each. To change one, edit in Grafana, export the JSON (Share > Export), save it over the file and push it to `main`; Argo CD loads it, with no release needed.
 
