@@ -1,6 +1,7 @@
 # Both services build from this repo and share a version: one tag releases
-# both images, and `make deploy` rolls out both.
-VERSION   ?= 1.6.0
+# both images, and `make deploy` rolls out both. The version deployed is the
+# newTag in k8s/kustomization.yaml; VERSION defaults to it.
+VERSION   ?= $(shell sed -n "s/^ *newTag: *//p" k8s/kustomization.yaml | head -1)
 REGISTRY  := ghcr.io/c88lopez
 NAMESPACE := importer
 API_IMAGE    := $(REGISTRY)/importer-api:$(VERSION)
@@ -110,26 +111,22 @@ migrate: ## run pending migrations in the cluster with the $(VERSION) image; sto
 	@$(JOB_STATE) | grep -qw Complete || { echo "migration failed, nothing was deployed"; exit 1; }
 
 # Grafana's sidecar loads any ConfigMap labeled grafana_dashboard, from any
-# namespace, into the folder named by grafana_folder. Each file in
-# k8s/dashboards/ gets its own ConfigMap (<name>-dashboard). Edit a dashboard
-# in Grafana, export it (Share > Export > JSON), save it over the file, re-run this.
+# namespace. k8s/kustomization.yaml makes one per file in k8s/dashboards/
+# (<name>-dashboard). Edit a dashboard in Grafana, export it
+# (Share > Export > JSON), save it over the file, re-run this.
 dashboard: ## load every dashboard in k8s/dashboards/ into Grafana (no release needed)
-	@for f in k8s/dashboards/*.json; do \
-	  name=$$(basename $$f .json); \
-	  kubectl -n $(NAMESPACE) create configmap $$name-dashboard --from-file=$$name.json=$$f --dry-run=client -o yaml \
-	    | kubectl label --local -f - grafana_dashboard=1 -o yaml \
-	    | kubectl annotate --local -f - grafana_folder=Services -o yaml \
-	    | kubectl apply --server-side -f -; \
-	done
+	kubectl apply -k k8s/ -l grafana_dashboard=1
 
 # Order matters: the migration first, so the API and worker of a version
-# always find the schema they expect. k8s/dev/ and k8s/jobs/ aren't applied.
+# always find the schema they expect. The Job is left out here (make migrate
+# already ran it), and k8s/dev/ isn't in the kustomization.
 deploy: migrate ## migrate, then roll out the API and the worker and load the dashboards
-	kubectl apply -f k8s/00-namespace.yaml -f k8s/api/ -f k8s/worker/
-	$(MAKE) dashboard
+	kubectl apply -k k8s/ -l 'component!=migrate'
 	kubectl -n $(NAMESPACE) rollout status deployment/importer-api
 	kubectl -n $(NAMESPACE) rollout status deployment/importer-worker
 
+# Changes the cluster only: bump newTag in k8s/kustomization.yaml too, or the
+# next make deploy puts the old version back.
 rollout: migrate ## migrate, then switch both services to a version CI already pushed: make rollout VERSION=1.6.0
 	kubectl -n $(NAMESPACE) set image deployment/importer-api importer-api=$(API_IMAGE)
 	kubectl -n $(NAMESPACE) set image deployment/importer-worker importer-worker=$(WORKER_IMAGE)

@@ -1,9 +1,12 @@
 # A Job runs a pod to completion once, instead of keeping it running like a
 # Deployment. This one applies pending database migrations before a deploy.
 #
-# It's in k8s/jobs/ on purpose: `kubectl apply -f k8s/` doesn't recurse, so
-# `make deploy` never applies it directly. `make migrate` runs it with the
+# make deploy leaves it out of its apply: `make migrate` runs it first with the
 # image for $(VERSION) and waits for it, then the deploy goes ahead.
+#
+# Under Argo CD it's a PreSync hook: every sync runs it (recreating the old
+# one first) before applying anything else, and stops the sync if it fails.
+# The image tag comes from k8s/kustomization.yaml, like the services'.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -12,6 +15,9 @@ metadata:
   labels:
     app: importer-api
     component: migrate
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 0 # a failed migration needs a human, not a retry
   activeDeadlineSeconds: 600 # kill a migration that hangs (e.g. waiting on a table lock)
@@ -26,7 +32,7 @@ spec:
       containers:
         - name: migrate
           # make migrate replaces this with the image for $(VERSION).
-          image: ghcr.io/c88lopez/importer-api:1.6.0
+          image: ghcr.io/c88lopez/importer-api
           args: ["migrate", "up"]
           envFrom:
             # Not optional here: without DATABASE_URL there's nothing to migrate.
