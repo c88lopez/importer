@@ -118,7 +118,9 @@ release: ## tag a version: CI builds both images, Argo CD deploys them: make rel
 # pool_max_conns caps each pod's connection pool. pgx's default is one per CPU
 # it sees, 32 on this node, and Postgres allows 100 in all: with the HPAs'
 # maximums (4 pods each) the three services can open 4*6 + 4*6 + 4*3 = 60.
-# Raise a maxReplicas and this budget has to be checked again.
+# Raise a maxReplicas and this budget has to be checked again. The migration
+# Job can't take pool_max_conns (see k8s/jobs/migrate.yaml): it uses
+# MIGRATE_DATABASE_URL, the same URL without it.
 # --server-side: a client-side `kubectl apply` would keep a plain-text copy of
 # the URLs (with their passwords) in the last-applied-configuration annotation.
 # --force-conflicts: this target owns these Secrets, including fields an older
@@ -129,6 +131,7 @@ secrets: ## create or update the services' Secrets from the cluster's Postgres, 
 	kubectl apply -f k8s/00-namespace.yaml
 	kubectl -n $(NAMESPACE) create secret generic importer-api-deps \
 	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
+	  --from-literal=MIGRATE_DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
 	  --from-literal=REDIS_URL="redis://:$$(kubectl -n default get secret redis-secret -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d)@redis.default.svc.cluster.local:6379/0" \
 	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -

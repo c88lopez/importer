@@ -35,6 +35,16 @@ spec:
             # Not optional here: without DATABASE_URL there's nothing to migrate.
             - secretRef:
                 name: importer-api-deps
+          env:
+            # Replaces the DATABASE_URL above (env wins over envFrom). The
+            # services' URL ends in ?pool_max_conns=..., which only their pgx
+            # pool understands: goose connects through database/sql, which
+            # sends it on to Postgres, and Postgres refuses the connection.
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: importer-api-deps
+                  key: MIGRATE_DATABASE_URL
           resources:
             requests:
               cpu: 50m
