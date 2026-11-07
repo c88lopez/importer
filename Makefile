@@ -114,23 +114,32 @@ release: ## tag a version: CI builds both images, Argo CD deploys them: make rel
 # Each service gets its own Secret with only what it uses. The worker and the
 # GraphQL service use the same database user as the API: they share its items
 # table.
+#
+# pool_max_conns caps each pod's connection pool. pgx's default is one per CPU
+# it sees, 32 on this node, and Postgres allows 100 in all: with the HPAs'
+# maximums (4 pods each) the three services can open 4*6 + 4*6 + 4*3 = 60.
+# Raise a maxReplicas and this budget has to be checked again.
 # --server-side: a client-side `kubectl apply` would keep a plain-text copy of
 # the URLs (with their passwords) in the last-applied-configuration annotation.
+# --force-conflicts: this target owns these Secrets, including fields an older
+# client-side apply created, so a changed value replaces theirs.
+API_POOL    := 6
+WORKER_POOL := 3
 secrets: ## create or update the services' Secrets from the cluster's Postgres, RabbitMQ and Redis Secrets
 	kubectl apply -f k8s/00-namespace.yaml
 	kubectl -n $(NAMESPACE) create secret generic importer-api-deps \
-	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
+	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
 	  --from-literal=REDIS_URL="redis://:$$(kubectl -n default get secret redis-secret -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d)@redis.default.svc.cluster.local:6379/0" \
-	  --dry-run=client -o yaml | kubectl apply --server-side -f -
+	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -
 	kubectl -n $(NAMESPACE) create secret generic importer-worker-deps \
-	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
+	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(WORKER_POOL)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
-	  --dry-run=client -o yaml | kubectl apply --server-side -f -
+	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -
 	kubectl -n $(NAMESPACE) create secret generic importer-graphql-deps \
-	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
+	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
-	  --dry-run=client -o yaml | kubectl apply --server-side -f -
+	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -
 
 status: ## show everything running in the namespace
 	kubectl -n $(NAMESPACE) get all,configmap -o wide
@@ -138,7 +147,8 @@ status: ## show everything running in the namespace
 logs: ## stream logs from one service: make logs [APP=worker]
 	kubectl -n $(NAMESPACE) logs -l app=importer-$(APP) -f --prefix
 
-restart: ## recreate the pods of both services (e.g. after changing a ConfigMap or Secret)
-	kubectl -n $(NAMESPACE) rollout restart deployment/importer-api deployment/importer-worker
+restart: ## recreate the pods of every service (e.g. after changing a ConfigMap or Secret)
+	kubectl -n $(NAMESPACE) rollout restart deployment/importer-api deployment/importer-worker deployment/importer-graphql
 	kubectl -n $(NAMESPACE) rollout status deployment/importer-api
 	kubectl -n $(NAMESPACE) rollout status deployment/importer-worker
+	kubectl -n $(NAMESPACE) rollout status deployment/importer-graphql

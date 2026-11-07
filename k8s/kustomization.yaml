@@ -12,14 +12,17 @@ resources:
   - api/20-deployment.yaml
   - api/30-service.yaml
   - api/40-podmonitor.yaml
+  - api/50-hpa.yaml
   - worker/10-configmap.yaml
   - worker/20-deployment.yaml
   - worker/40-podmonitor.yaml
   - worker/50-rabbitmq-queues.yaml
+  - worker/60-scaledobject.yaml
   - graphql/10-configmap.yaml
   - graphql/20-deployment.yaml
   - graphql/30-service.yaml
   - graphql/40-podmonitor.yaml
+  - graphql/50-hpa.yaml
   - jobs/migrate.yaml
   # Not dev/: the test database is for local runs, not part of a deploy.
 

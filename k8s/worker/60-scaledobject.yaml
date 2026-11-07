@@ -1,0 +1,43 @@
+# Scales importer-worker on its queue rather than its CPU: the worker mostly
+# waits on Postgres, so its CPU says little about whether it's keeping up. The
+# number of messages waiting in importer-worker.item-created does.
+#
+# KEDA turns this into an HPA (keda-hpa-importer-worker) that sets
+#   replicas = ceil(messages ready / 50)
+# between 2 and 4. Messages a worker has prefetched (up to 10 each) aren't
+# "ready", so they don't count.
+#
+# Like the API, the Deployment has no replicas field: KEDA owns the count.
+# maxReplicaCount is limited by Postgres's connections: see "secrets" in the
+# Makefile before raising it.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: importer-worker
+  namespace: importer
+spec:
+  scaleTargetRef:
+    name: importer-worker
+  minReplicaCount: 2
+  maxReplicaCount: 4
+  triggers:
+    - type: rabbitmq
+      metadata:
+        protocol: amqp
+        queueName: importer-worker.item-created
+        mode: QueueLength
+        value: "50"
+      authenticationRef:
+        name: importer-worker-rabbitmq
+---
+# KEDA connects to RabbitMQ with the worker's own URL, from its Secret.
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: importer-worker-rabbitmq
+  namespace: importer
+spec:
+  secretTargetRef:
+    - parameter: host
+      name: importer-worker-deps
+      key: RABBITMQ_URL

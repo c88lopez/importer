@@ -8,14 +8,14 @@ metadata:
   labels:
     app: importer-api
 spec:
-  replicas: 2
+  # No replicas: the autoscaler sets the count (50-hpa.yaml or 60-scaledobject.yaml).
   selector:
     matchLabels:
       app: importer-api # must match the pod template labels below
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0 # never drop below 2 ready pods during an update
+      maxUnavailable: 0 # never drop below the current number of ready pods during an update
       maxSurge: 1
   template:
     metadata:

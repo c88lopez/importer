@@ -336,10 +336,13 @@ kubectl -n importer get pods -w        # in one terminal
 kubectl -n importer delete pod <name>  # in another
 ```
 
-**Scale.**
+**Autoscale.** Each service runs 2 to 4 pods, and the autoscaler picks the count: the API and GraphQL on CPU (`k8s/api/50-hpa.yaml`, `k8s/graphql/50-hpa.yaml`, over 150m per pod), the worker on the messages waiting in its queue (`k8s/worker/60-scaledobject.yaml`, KEDA, over 50 per pod). Load it and watch the count change:
 ```sh
-kubectl -n importer scale deployment/importer-api --replicas=4
+kubectl -n importer get hpa -w            # in one terminal: targets and replicas
+make perf-rest RATE=200 DURATION=5m       # in another
+make perf-worker MODE=backlog COUNT=5000  # the worker scales on its queue
 ```
+Pods are added within about 30s of the load, and removed 5 minutes after it ends. `kubectl scale` no longer sticks: the autoscaler sets the count back within 15s. The maximum of 4 is set by Postgres's 100 connections, not by CPU (see `secrets` in the Makefile).
 
 **Change config.** Edit `WELCOME_MESSAGE` in `k8s/api/10-configmap.yaml` and push it to `main`. Once Argo CD has synced it:
 ```sh

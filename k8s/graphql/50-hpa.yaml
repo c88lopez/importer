@@ -1,0 +1,34 @@
+# Scales importer-graphql on CPU: the HPA checks every 15s and sets
+#   replicas = ceil(replicas * average CPU / 150m)
+# between 2 and 4. It adds pods as soon as the average is over 150m, and removes
+# them only after 5 minutes below, so a short dip doesn't drop pods it's about
+# to need again.
+#
+# The Deployment has no replicas field: the HPA owns the count. If it had one,
+# every Argo CD sync would reset the count to it.
+#
+# 150m is an absolute value rather than a percentage, because a percentage is
+# of the CPU *request* (50m), and would scale at almost no load. It's 60% of
+# the 250m limit, so pods are added before they're throttled.
+#
+# maxReplicas is limited by Postgres's connections, not by CPU: see "secrets"
+# in the Makefile before raising it.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: importer-graphql
+  namespace: importer
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: importer-graphql
+  minReplicas: 2
+  maxReplicas: 4
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: AverageValue
+          averageValue: 150m

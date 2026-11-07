@@ -8,7 +8,7 @@ metadata:
   labels:
     app: importer-worker
 spec:
-  replicas: 2
+  # No replicas: the autoscaler sets the count (50-hpa.yaml or 60-scaledobject.yaml).
   selector:
     matchLabels:
       app: importer-worker
