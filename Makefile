@@ -5,7 +5,7 @@ VERSION   ?= $(shell sed -n "s/^ *newTag: *//p" k8s/kustomization.yaml | head -1
 REGISTRY  := ghcr.io/c88lopez
 NAMESPACE := importer
 
-.PHONY: tunnel dev-setup run-api run-worker run-graphql generate test build image migrate-local migration release secrets status logs restart
+.PHONY: tunnel dev-setup run-api run-worker run-graphql generate test build image migrate-local migration release secrets status logs restart perf-rest perf-graphql perf-worker
 
 ## --- local ---
 # Local runs use the cluster's Postgres and RabbitMQ through `make tunnel`,
@@ -85,6 +85,24 @@ migrate-local: ## run goose from your machine on the cluster's app database: mak
 
 migration: ## add an empty migration file: make migration NAME=add_items_owner
 	go run ./cmd/api migrate create $(NAME)
+
+## --- performance ---
+# k6 runs in Docker, so it doesn't need installing. The scripts are in perf/;
+# perf/README.md says what each measures. Variables that are set are passed
+# to k6: PROFILE, API_URL, GRAPHQL_URL, MODE, RATE, RAMP, DURATION, COUNT, TIMEOUT.
+K6_IMAGE ?= grafana/k6:latest
+PERF_VARS := PROFILE API_URL GRAPHQL_URL MODE RATE RAMP DURATION COUNT TIMEOUT
+k6 = docker run --rm -i -v $(CURDIR)/perf:/perf -w /perf $(K6_IMAGE) run \
+	$(foreach v,$(PERF_VARS),$(if $($(v)),-e $(v)=$($(v)))) $(1)
+
+perf-rest: ## load test the REST API: make perf-rest [PROFILE=smoke|load|stress] or [RATE=300 RAMP=2m DURATION=5m]
+	$(call k6,rest.js)
+
+perf-graphql: ## load test the GraphQL API: make perf-graphql [PROFILE=smoke|load|stress] or [RATE=300 RAMP=2m DURATION=5m]
+	$(call k6,graphql.js)
+
+perf-worker: ## RabbitMQ consumption: make perf-worker [RATE=10 DURATION=1m] or [MODE=backlog COUNT=1000]
+	$(call k6,worker.js)
 
 ## --- kubernetes ---
 # Argo CD deploys it from there: Image Updater commits the new tag to
