@@ -4,6 +4,8 @@
 VERSION   ?= $(shell sed -n "s/^ *newTag: *//p" k8s/kustomization.yaml | head -1)
 REGISTRY  := ghcr.io/c88lopez
 NAMESPACE := importer
+# Where Postgres, RabbitMQ and Redis run (the platform repo's manifests/data/).
+DATA_NS   := data
 
 .PHONY: tunnel dev-setup run-api run-worker run-graphql generate test build image migrate-local migration release secrets status logs restart perf-rest perf-graphql perf-worker
 
@@ -15,7 +17,7 @@ NAMESPACE := importer
 #   run-*, migrate-local   the real `app` database and the `/` vhost
 #   test                   importer_test and the importer-test vhost, because
 #                          tests truncate tables and delete exchanges
-secret = $(shell kubectl -n default get secret $(1) -o jsonpath='{.data.$(2)}' | base64 -d)
+secret = $(shell kubectl -n $(DATA_NS) get secret $(1) -o jsonpath='{.data.$(2)}' | base64 -d)
 PG_USER = $(eval PG_USER := $(call secret,postgres-app,username))$(PG_USER)
 PG_PASS = $(eval PG_PASS := $(call secret,postgres-app,password))$(PG_PASS)
 MQ_USER = $(eval MQ_USER := $(call secret,rabbitmq-default-user,username))$(MQ_USER)
@@ -31,14 +33,14 @@ LOCAL_TEST_RABBITMQ_URL ?= amqp://$(MQ_USER):$(MQ_PASS)@localhost:5673/$(TEST_VH
 # clash with a forward of Postgres on 5432 you may already have.
 tunnel: ## forward the cluster's Postgres (5433) and RabbitMQ (5673, UI on 15673) to localhost
 	@trap 'kill 0' INT TERM EXIT; \
-	kubectl -n default port-forward svc/postgres-rw 5433:5432 & \
-	kubectl -n default port-forward svc/rabbitmq 5673:5672 15673:15672 & \
+	kubectl -n $(DATA_NS) port-forward svc/postgres-rw 5433:5432 & \
+	kubectl -n $(DATA_NS) port-forward svc/rabbitmq 5673:5672 15673:15672 & \
 	wait
 
 dev-setup: ## once: create the test database and the test vhost in the cluster
 	kubectl apply -f k8s/dev/
-	kubectl -n default exec rabbitmq-server-0 -c rabbitmq -- rabbitmqctl add_vhost $(TEST_VHOST) || true
-	kubectl -n default exec rabbitmq-server-0 -c rabbitmq -- rabbitmqctl set_permissions -p $(TEST_VHOST) "$(MQ_USER)" ".*" ".*" ".*"
+	kubectl -n $(DATA_NS) exec rabbitmq-server-0 -c rabbitmq -- rabbitmqctl add_vhost $(TEST_VHOST) || true
+	kubectl -n $(DATA_NS) exec rabbitmq-server-0 -c rabbitmq -- rabbitmqctl set_permissions -p $(TEST_VHOST) "$(MQ_USER)" ".*" ".*" ".*"
 
 run-api: export DATABASE_URL = $(LOCAL_DATABASE_URL)
 run-api: export RABBITMQ_URL = $(LOCAL_RABBITMQ_URL)
@@ -130,18 +132,18 @@ WORKER_POOL := 3
 secrets: ## create or update the services' Secrets from the cluster's Postgres, RabbitMQ and Redis Secrets
 	kubectl apply -f k8s/00-namespace.yaml
 	kubectl -n $(NAMESPACE) create secret generic importer-api-deps \
-	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
-	  --from-literal=MIGRATE_DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
-	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
-	  --from-literal=REDIS_URL="redis://:$$(kubectl -n default get secret redis-secret -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d)@redis.default.svc.cluster.local:6379/0" \
+	  --from-literal=DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
+	  --from-literal=MIGRATE_DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
+	  --from-literal=RABBITMQ_URL="$$(kubectl -n $(DATA_NS) get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
+	  --from-literal=REDIS_URL="redis://:$$(kubectl -n $(DATA_NS) get secret redis-secret -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d)@redis.$(DATA_NS).svc.cluster.local:6379/0" \
 	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -
 	kubectl -n $(NAMESPACE) create secret generic importer-worker-deps \
-	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(WORKER_POOL)" \
-	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
+	  --from-literal=DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(WORKER_POOL)" \
+	  --from-literal=RABBITMQ_URL="$$(kubectl -n $(DATA_NS) get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
 	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -
 	kubectl -n $(NAMESPACE) create secret generic importer-graphql-deps \
-	  --from-literal=DATABASE_URL="$$(kubectl -n default get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
-	  --from-literal=RABBITMQ_URL="$$(kubectl -n default get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
+	  --from-literal=DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
+	  --from-literal=RABBITMQ_URL="$$(kubectl -n $(DATA_NS) get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
 	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -
 
 status: ## show everything running in the namespace
