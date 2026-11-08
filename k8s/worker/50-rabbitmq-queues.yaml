@@ -1,6 +1,6 @@
 # Per-queue RabbitMQ metrics for the worker's queues, for its dashboard.
 #
-# RabbitMQ's default /metrics (scraped by the ServiceMonitor in `default`)
+# RabbitMQ's default /metrics (scraped by the ServiceMonitor in `data`)
 # sums all queues together. /metrics/detailed returns one series per queue,
 # for the metric families asked for, e.g.
 #   rabbitmq_detailed_queue_messages_ready{vhost="/", queue="importer-worker.item-created"}
@@ -16,7 +16,7 @@ metadata:
     app: importer-worker
 spec:
   namespaceSelector:
-    matchNames: [default]
+    matchNames: [data]
   selector:
     matchLabels:
       app.kubernetes.io/component: rabbitmq

@@ -145,7 +145,7 @@ A few things only GraphQL needs:
 
 ## Run locally
 
-There are no local copies of the dependencies: `make run-api`, `make run-graphql` (GraphiQL on http://localhost:8081), `make run-worker` and `make test` use the cluster's Postgres and RabbitMQ through `kubectl port-forward`. The Makefile reads the credentials from their Secrets in `default`.
+There are no local copies of the dependencies: `make run-api`, `make run-graphql` (GraphiQL on http://localhost:8081), `make run-worker` and `make test` use the cluster's Postgres and RabbitMQ through `kubectl port-forward`. The Makefile reads the credentials from their Secrets in `data`.
 
 | | Postgres | RabbitMQ |
 | --- | --- | --- |
@@ -228,12 +228,12 @@ To roll back, first tell Image Updater to skip the bad version: add it to `ignor
 
 ## Deploy
 
-The cluster is Docker Desktop on another PC (`192.168.68.57`); `kubectl config current-context` prints `docker-desktop`. Postgres, RabbitMQ and Redis already run in its `default` namespace.
+The cluster is Docker Desktop on another PC (`192.168.68.57`); `kubectl config current-context` prints `docker-desktop`. Postgres, RabbitMQ and Redis already run in its `data` namespace.
 
 All three services run in the `importer` namespace. Each has its own Secret, with only the connection URLs it uses. Secrets aren't in Git, so they're the one thing you create by hand:
 
 ```sh
-make secrets        # once: copies the connection URLs from the Secrets in `default`
+make secrets        # once: copies the connection URLs from the Secrets in `data`
 ```
 
 Everything else is deployed by Argo CD (http://192.168.68.57:30081), from `k8s/` on `main`: the `importer` Application in the [platform repo](https://github.com/c88lopez/platform). Any commit that changes `k8s/` (a ConfigMap, a dashboard, a new version) is live within about 3 minutes.

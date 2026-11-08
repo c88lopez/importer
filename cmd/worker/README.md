@@ -52,7 +52,7 @@ There's no API, so one port (`PORT`, default 9464) serves:
 | `messaging_process_duration_seconds` | Messages processed, by `outcome` (`done`, `requeued`, `dead_lettered`) |
 | `db_client_operation_duration_seconds`, `pgxpool_*` | Database calls and the connection pool |
 
-Queue metrics come from RabbitMQ itself. Its default `/metrics` (the ServiceMonitor in `default`) adds up all queues, so `k8s/worker/50-rabbitmq-queues.yaml` also scrapes `/metrics/detailed`, which has one series per queue, and keeps only the worker's queues:
+Queue metrics come from RabbitMQ itself. Its default `/metrics` (the ServiceMonitor in `data`) adds up all queues, so `k8s/worker/50-rabbitmq-queues.yaml` also scrapes `/metrics/detailed`, which has one series per queue, and keeps only the worker's queues:
 
 | Metric | What |
 | --- | --- |
