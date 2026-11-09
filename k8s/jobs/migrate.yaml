@@ -27,6 +27,7 @@ spec:
         component: migrate
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false # no Kubernetes API access needed, see api/20-deployment.yaml
       containers:
         - name: migrate
           image: ghcr.io/c88lopez/importer-api
