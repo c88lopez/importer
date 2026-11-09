@@ -129,8 +129,11 @@ release: ## tag a version: CI builds both images, Argo CD deploys them: make rel
 # client-side apply created, so a changed value replaces theirs.
 API_POOL    := 6
 WORKER_POOL := 3
+# The namespace is Argo CD's: only create it if it doesn't exist yet (before the
+# first sync). Applying it over Argo CD's copy drops its tracking annotation, and
+# the Application shows OutOfSync until the next commit.
 secrets: ## create or update the services' Secrets from the cluster's Postgres, RabbitMQ and Redis Secrets
-	kubectl apply -f k8s/00-namespace.yaml
+	kubectl get namespace $(NAMESPACE) >/dev/null 2>&1 || kubectl apply -f k8s/00-namespace.yaml
 	kubectl -n $(NAMESPACE) create secret generic importer-api-deps \
 	  --from-literal=DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
 	  --from-literal=MIGRATE_DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
