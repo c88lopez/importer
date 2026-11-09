@@ -24,6 +24,7 @@ spec:
     spec:
       # SIGTERM stops consuming; the message in hand gets up to 30s to finish.
       terminationGracePeriodSeconds: 45
+      automountServiceAccountToken: false # no Kubernetes API access needed, see api/20-deployment.yaml
       containers:
         - name: importer-worker
           # Built and pushed by .github/workflows/build.yml when a v* tag is pushed.

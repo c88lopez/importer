@@ -23,6 +23,9 @@ spec:
         app: importer-api
     spec:
       terminationGracePeriodSeconds: 20 # time between SIGTERM and SIGKILL
+      # The pod never talks to the Kubernetes API, so it doesn't get a token for
+      # it: one less credential to steal if the container is compromised.
+      automountServiceAccountToken: false
       containers:
         - name: importer-api
           # Built and pushed by .github/workflows/build.yml when a v* tag is pushed.
