@@ -4,6 +4,7 @@ package database
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/exaring/otelpgx"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -22,4 +23,19 @@ func NewPool(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
 	}
 	cfg.ConnConfig.Tracer = otelpgx.NewTracer(otelpgx.WithQuerySpanNamePrefix())
 	return pgxpool.NewWithConfig(ctx, cfg)
+}
+
+// Open is NewPool for the services: it also reports the pool's usage as
+// pgxpool_* metrics. Like NewPool it doesn't connect, so a database that's
+// down shows up in /readyz, not here.
+func Open(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
+	db, err := NewPool(ctx, databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("invalid DATABASE_URL: %w", err)
+	}
+	if err := otelpgx.RecordStats(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("pool metrics setup failed: %w", err)
+	}
+	return db, nil
 }

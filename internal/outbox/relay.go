@@ -115,6 +115,27 @@ func (r *Relay) Notify() {
 	}
 }
 
+// Start runs the relay in the background. stop cancels it and waits for it
+// to finish, or for ctx to end. Rows left in the outbox are published by
+// another pod's relay, or by this one's next start.
+func (r *Relay) Start() (stop func(ctx context.Context) error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		r.Run(ctx)
+	}()
+	return func(waitCtx context.Context) error {
+		cancel()
+		select {
+		case <-done:
+			return nil
+		case <-waitCtx.Done():
+			return fmt.Errorf("outbox relay didn't stop: %w", waitCtx.Err())
+		}
+	}
+}
+
 // Run publishes until ctx is cancelled, reconnecting to RabbitMQ with
 // backoff when the connection drops. Events written meanwhile wait in the
 // outbox, so a RabbitMQ outage delays them but loses nothing.

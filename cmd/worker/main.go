@@ -12,8 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/exaring/otelpgx"
-
+	"github.com/vandelay-labs/importer/internal/app"
 	"github.com/vandelay-labs/importer/internal/database"
 	"github.com/vandelay-labs/importer/internal/items"
 	"github.com/vandelay-labs/importer/internal/telemetry"
@@ -29,34 +28,25 @@ func main() {
 	cfg := loadConfig()
 	svc := telemetry.Service{Name: "importer-worker", Version: version}
 
-	shutdownTracing, err := telemetry.SetupTracing(context.Background(), svc)
-	if err != nil {
-		slog.Error("tracing setup failed", "err", err)
-		os.Exit(1)
-	}
 	// Before the pool and the consumer: they read the global MeterProvider when created.
-	metricsHandler, shutdownMetrics, err := telemetry.SetupMetrics(context.Background(), svc)
+	metricsHandler, shutdownTelemetry, err := telemetry.Setup(context.Background(), svc)
 	if err != nil {
-		slog.Error("metrics setup failed", "err", err)
+		slog.Error("telemetry setup failed", "err", err)
 		os.Exit(1)
 	}
 
 	// Both dependencies are required. Neither connects here: a database or
 	// broker that's down shows up in /readyz, and the consumer retries.
-	if cfg.DatabaseURL == "" || cfg.RabbitMQURL == "" {
-		slog.Error("DATABASE_URL and RABBITMQ_URL are required")
+	if err := app.Require(app.Setting{Name: "DATABASE_URL", Value: cfg.DatabaseURL}, app.Setting{Name: "RABBITMQ_URL", Value: cfg.RabbitMQURL}); err != nil {
+		slog.Error("invalid config", "err", err)
 		os.Exit(1)
 	}
-	db, err := database.NewPool(context.Background(), cfg.DatabaseURL)
+	db, err := database.Open(context.Background(), cfg.DatabaseURL)
 	if err != nil {
-		slog.Error("invalid DATABASE_URL", "err", err)
+		slog.Error("database setup failed", "err", err)
 		os.Exit(1)
 	}
 	defer db.Close()
-	if err := otelpgx.RecordStats(db); err != nil {
-		slog.Error("pool metrics setup failed", "err", err)
-		os.Exit(1)
-	}
 
 	c, err := worker.NewConsumer(cfg.RabbitMQURL, worker.NewItemProcessor(items.NewStore(db)).Handle)
 	if err != nil {
@@ -87,10 +77,9 @@ func main() {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(shutdownCtx)
-	if err := shutdownTracing(shutdownCtx); err != nil {
-		slog.Error("tracing shutdown failed", "err", err)
+	if err := shutdownTelemetry(shutdownCtx); err != nil {
+		slog.Error("telemetry shutdown failed", "err", err)
 	}
-	_ = shutdownMetrics(shutdownCtx)
 	slog.Info("worker stopped")
 }
 

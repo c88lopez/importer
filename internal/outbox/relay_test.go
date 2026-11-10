@@ -92,13 +92,12 @@ func write(t *testing.T, ctx context.Context, db *pgxpool.Pool, r *Relay, id int
 
 func runRelay(t *testing.T, relay *Relay) {
 	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		relay.Run(ctx)
-	}()
-	t.Cleanup(func() { cancel(); <-done })
+	stop := relay.Start()
+	t.Cleanup(func() {
+		if err := stop(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
 }
 
 func outboxCount(t *testing.T, db *pgxpool.Pool) int {
