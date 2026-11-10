@@ -18,7 +18,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	var ready atomic.Bool
 	ready.Store(true)
-	srv := httptest.NewServer(NewRouter(LoadConfig(), newMemStore(), &ready, nil, nil))
+	srv := httptest.NewServer(NewRouter(LoadConfig(), newMemStore(), ReadinessHandler(&ready, nil), nil))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -87,7 +87,7 @@ func (a *allowN) Allow(context.Context, string) (ratelimit.Result, error) {
 func TestRateLimit(t *testing.T) {
 	var ready atomic.Bool
 	ready.Store(true)
-	srv := httptest.NewServer(NewRouter(LoadConfig(), newMemStore(), &ready, nil, RateLimit(&allowN{n: 2})))
+	srv := httptest.NewServer(NewRouter(LoadConfig(), newMemStore(), ReadinessHandler(&ready, nil), RateLimit(&allowN{n: 2})))
 	t.Cleanup(srv.Close)
 
 	for i := range 2 {

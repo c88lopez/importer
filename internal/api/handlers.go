@@ -9,7 +9,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync/atomic"
 
 	"github.com/vandelay-labs/importer/internal/items"
 	"github.com/vandelay-labs/importer/internal/ratelimit"
@@ -24,9 +23,10 @@ type itemStore interface {
 	Delete(ctx context.Context, id int64) error
 }
 
-// NewRouter serves the API. checks are the dependency pings behind /readyz.
-// limit wraps the /api/items routes (see RateLimit); nil means no limit.
-func NewRouter(cfg Config, s itemStore, ready *atomic.Bool, checks []checker, limit func(http.Handler) http.Handler) http.Handler {
+// NewRouter serves the API. readyz is the readiness check (see
+// ReadinessHandler). limit wraps the /api/items routes (see RateLimit); nil
+// means no limit.
+func NewRouter(cfg Config, s itemStore, readyz http.Handler, limit func(http.Handler) http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	if limit == nil {
 		limit = func(h http.Handler) http.Handler { return h }
@@ -42,7 +42,7 @@ func NewRouter(cfg Config, s itemStore, ready *atomic.Bool, checks []checker, li
 
 	// Readiness: "can it take traffic?" If this fails, k8s removes the pod from the Service.
 	// Pings postgres, redis and rabbitmq (see health.go).
-	mux.HandleFunc("GET /readyz", ReadinessHandler(ready, checks))
+	mux.Handle("GET /readyz", readyz)
 
 	// Info: shows which pod answered. Hit it repeatedly to watch the Service load-balance.
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {

@@ -30,7 +30,7 @@ func TestTraceRequests(t *testing.T) {
 
 	var ready atomic.Bool
 	ready.Store(true)
-	srv := httptest.NewServer(TraceRequests(LogRequests(NewRouter(LoadConfig(), newMemStore(), &ready, nil, nil))))
+	srv := httptest.NewServer(TraceRequests(LogRequests(NewRouter(LoadConfig(), newMemStore(), ReadinessHandler(&ready, nil), nil))))
 	t.Cleanup(srv.Close)
 
 	for _, path := range []string{"/healthz", "/readyz", "/api/items/42"} {
