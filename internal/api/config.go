@@ -4,8 +4,11 @@
 package api
 
 import (
+	"log/slog"
 	"os"
+	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -23,6 +26,12 @@ type Config struct {
 
 	// Dependencies that make the pod not ready when down. The rest are reported only.
 	CriticalDeps []string
+
+	// Requests each client IP may make per window on the item endpoints.
+	// Counted in Redis, so limiting is off when RedisURL is empty or
+	// RateLimit is 0.
+	RateLimit       int
+	RateLimitWindow time.Duration
 }
 
 func LoadConfig() Config {
@@ -38,6 +47,9 @@ func LoadConfig() Config {
 		RabbitMQURL: os.Getenv("RABBITMQ_URL"),
 
 		CriticalDeps: criticalDeps(),
+
+		RateLimit:       getenvInt("RATE_LIMIT_REQUESTS", 100),
+		RateLimitWindow: getenvDuration("RATE_LIMIT_WINDOW", time.Minute),
 	}
 }
 
@@ -62,4 +74,26 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getenvInt and getenvDuration fall back, with a warning, on a value that
+// doesn't parse, like getenv does on an empty one.
+func getenvInt(key string, fallback int) int {
+	v := getenv(key, strconv.Itoa(fallback))
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		slog.Warn("invalid setting, using the default", "key", key, "value", v, "default", fallback)
+		return fallback
+	}
+	return n
+}
+
+func getenvDuration(key string, fallback time.Duration) time.Duration {
+	v := getenv(key, fallback.String())
+	d, err := time.ParseDuration(v)
+	if err != nil || d <= 0 {
+		slog.Warn("invalid setting, using the default", "key", key, "value", v, "default", fallback.String())
+		return fallback
+	}
+	return d
 }

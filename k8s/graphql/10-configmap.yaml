@@ -1,5 +1,5 @@
-# Non-secret config for importer-graphql, injected as env vars. The database
-# and RabbitMQ URLs are in the importer-graphql-deps Secret (make secrets).
+# Non-secret config for importer-graphql, injected as env vars. The database,
+# RabbitMQ and Redis URLs are in the importer-graphql-deps Secret (make secrets).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -7,7 +7,12 @@ metadata:
   namespace: importer
 data:
   APP_ENV: "k8s-local"
-  # It doesn't use Redis, so only these two are checked by /readyz.
+  # Redis only holds the rate limit counts, so it's not critical: when it's
+  # down, requests go through unlimited.
   CRITICAL_DEPENDENCIES: "postgres,rabbitmq"
+  # Requests per client IP per window on the item endpoints, counted in Redis.
+  # 0 turns limiting off (e.g. for a perf run: k6 sends everything from one IP).
+  RATE_LIMIT_REQUESTS: "100"
+  RATE_LIMIT_WINDOW: "1m"
   # Send traces to Alloy, which forwards them to Tempo. Remove to turn tracing off.
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://alloy.monitoring.svc:4317"

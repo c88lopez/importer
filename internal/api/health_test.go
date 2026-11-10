@@ -120,7 +120,7 @@ func TestHealthzIgnoresDependencies(t *testing.T) {
 	var ready atomic.Bool
 	ready.Store(true)
 	down := []checker{{"postgres", true, func(ctx context.Context) error { return errors.New("down") }}}
-	srv := httptest.NewServer(NewRouter(LoadConfig(), newMemStore(), &ready, down))
+	srv := httptest.NewServer(NewRouter(LoadConfig(), newMemStore(), &ready, down, nil))
 	defer srv.Close()
 
 	res, err := http.Get(srv.URL + "/healthz")

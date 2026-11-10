@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 
 	"github.com/vandelay-labs/importer/internal/items"
+	"github.com/vandelay-labs/importer/internal/ratelimit"
 )
 
 // itemStore is what the handlers need: items.Store in production, memStore
@@ -24,8 +25,14 @@ type itemStore interface {
 }
 
 // NewRouter serves the API. checks are the dependency pings behind /readyz.
-func NewRouter(cfg Config, s itemStore, ready *atomic.Bool, checks []checker) http.Handler {
+// limit wraps the /api/items routes (see RateLimit); nil means no limit.
+func NewRouter(cfg Config, s itemStore, ready *atomic.Bool, checks []checker, limit func(http.Handler) http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	if limit == nil {
+		limit = func(h http.Handler) http.Handler { return h }
+	}
+	// The item endpoints are rate limited; the probes and GET / aren't.
+	limited := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, limit(h)) }
 
 	// Liveness: "is the process alive?" If this fails, k8s restarts the container.
 	// Keep it dependency-free: restarting this pod can't fix a down database.
@@ -52,7 +59,7 @@ func NewRouter(cfg Config, s itemStore, ready *atomic.Bool, checks []checker) ht
 		})
 	})
 
-	mux.HandleFunc("GET /api/items", func(w http.ResponseWriter, r *http.Request) {
+	limited("GET /api/items", func(w http.ResponseWriter, r *http.Request) {
 		items, err := s.List(r.Context())
 		if err != nil {
 			writeStoreError(w, r, err)
@@ -61,7 +68,7 @@ func NewRouter(cfg Config, s itemStore, ready *atomic.Bool, checks []checker) ht
 		writeJSON(w, http.StatusOK, items)
 	})
 
-	mux.HandleFunc("POST /api/items", func(w http.ResponseWriter, r *http.Request) {
+	limited("POST /api/items", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
 			Name string `json:"name"`
 			Kind string `json:"kind"`
@@ -87,7 +94,7 @@ func NewRouter(cfg Config, s itemStore, ready *atomic.Bool, checks []checker) ht
 		writeJSON(w, http.StatusCreated, it)
 	})
 
-	mux.HandleFunc("GET /api/items/{id}", func(w http.ResponseWriter, r *http.Request) {
+	limited("GET /api/items/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := itemID(w, r)
 		if !ok {
 			return
@@ -100,7 +107,7 @@ func NewRouter(cfg Config, s itemStore, ready *atomic.Bool, checks []checker) ht
 		writeJSON(w, http.StatusOK, it)
 	})
 
-	mux.HandleFunc("DELETE /api/items/{id}", func(w http.ResponseWriter, r *http.Request) {
+	limited("DELETE /api/items/{id}", func(w http.ResponseWriter, r *http.Request) {
 		id, ok := itemID(w, r)
 		if !ok {
 			return
@@ -113,6 +120,14 @@ func NewRouter(cfg Config, s itemStore, ready *atomic.Bool, checks []checker) ht
 	})
 
 	return mux
+}
+
+// RateLimit returns the middleware that limits the item endpoints per client
+// IP, answering 429 {"error": "rate limit exceeded"} past the limit.
+func RateLimit(l ratelimit.Allower) func(http.Handler) http.Handler {
+	return ratelimit.Middleware(l, func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusTooManyRequests, "rate limit exceeded")
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

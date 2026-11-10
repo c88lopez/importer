@@ -10,5 +10,9 @@ data:
   WELCOME_MESSAGE: "Hello from inside the cluster!"
   # Only these take the pod out of the Service when down; others just show in /readyz.
   CRITICAL_DEPENDENCIES: "postgres,rabbitmq"
+  # Requests per client IP per window on the item endpoints, counted in Redis.
+  # 0 turns limiting off (e.g. for a perf run: k6 sends everything from one IP).
+  RATE_LIMIT_REQUESTS: "100"
+  RATE_LIMIT_WINDOW: "1m"
   # Send traces to Alloy, which forwards them to Tempo. Remove to turn tracing off.
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://alloy.monitoring.svc:4317"

@@ -15,12 +15,14 @@ import (
 	"time"
 
 	"github.com/exaring/otelpgx"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/vandelay-labs/importer/internal/api"
 	"github.com/vandelay-labs/importer/internal/database"
 	"github.com/vandelay-labs/importer/internal/gql"
 	"github.com/vandelay-labs/importer/internal/items"
 	"github.com/vandelay-labs/importer/internal/outbox"
+	"github.com/vandelay-labs/importer/internal/ratelimit"
 	"github.com/vandelay-labs/importer/internal/telemetry"
 )
 
@@ -31,7 +33,7 @@ func main() {
 	slog.SetDefault(telemetry.NewLogger(os.Stdout))
 
 	// Same settings as the API (PORT, METRICS_PORT, DATABASE_URL,
-	// RABBITMQ_URL, CRITICAL_DEPENDENCIES); it doesn't use Redis.
+	// RABBITMQ_URL, REDIS_URL, CRITICAL_DEPENDENCIES, RATE_LIMIT_*).
 	cfg := api.LoadConfig()
 	svc := telemetry.Service{Name: "importer-graphql", Version: version}
 
@@ -84,12 +86,33 @@ func main() {
 		relay.Run(relayCtx)
 	}()
 
-	checks, closeChecks, err := api.NewCheckers(cfg, db)
+	// Redis holds the rate limit counts. It's optional: without it, /readyz
+	// skips its check and requests aren't limited.
+	var rdb *redis.Client
+	var limiter *ratelimit.Limiter
+	if cfg.RedisURL != "" {
+		if rdb, err = api.NewRedisClient(cfg.RedisURL); err != nil {
+			slog.Error("invalid REDIS_URL", "err", err)
+			os.Exit(1)
+		}
+		defer rdb.Close()
+		if cfg.RateLimit > 0 {
+			limiter = ratelimit.New(rdb, "importer-graphql", cfg.RateLimit, cfg.RateLimitWindow)
+		}
+	}
+	var limit func(http.Handler) http.Handler
+	if limiter != nil {
+		limit = gql.RateLimit(limiter)
+		slog.Info("rate limiting per client IP", "limit", cfg.RateLimit, "window", cfg.RateLimitWindow.String())
+	} else {
+		slog.Warn("rate limiting is off: set REDIS_URL and RATE_LIMIT_REQUESTS to turn it on")
+	}
+
+	checks, err := api.NewCheckers(cfg, db, rdb)
 	if err != nil {
 		slog.Error("invalid dependency config", "err", err)
 		os.Exit(1)
 	}
-	defer closeChecks()
 
 	// ready flips to false on shutdown so the readiness probe fails and
 	// Kubernetes stops routing new traffic to this pod before it exits.
@@ -97,7 +120,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
-		Handler:           api.TraceRequests(api.LogRequests(gql.NewRouter(store, version, api.ReadinessHandler(&ready, checks)))),
+		Handler:           api.TraceRequests(api.LogRequests(gql.NewRouter(store, version, api.ReadinessHandler(&ready, checks), limit))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

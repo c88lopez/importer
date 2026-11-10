@@ -1,18 +1,24 @@
 package api
 
 import (
+	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/vandelay-labs/importer/internal/ratelimit"
 )
 
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	var ready atomic.Bool
 	ready.Store(true)
-	srv := httptest.NewServer(NewRouter(LoadConfig(), newMemStore(), &ready, nil))
+	srv := httptest.NewServer(NewRouter(LoadConfig(), newMemStore(), &ready, nil, nil))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -60,6 +66,51 @@ func TestProbes(t *testing.T) {
 	for _, path := range []string{"/healthz", "/readyz"} {
 		res, _ := http.Get(srv.URL + path)
 		if res.StatusCode != http.StatusOK {
+			t.Errorf("%s: got %d, want 200", path, res.StatusCode)
+		}
+	}
+}
+
+// allowN is a rate limiter that allows the first n requests, from any IP.
+type allowN struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (a *allowN) Allow(context.Context, string) (ratelimit.Result, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.n--
+	return ratelimit.Result{Allowed: a.n >= 0, Limit: 2, Remaining: max(a.n, 0), Reset: time.Minute}, nil
+}
+
+func TestRateLimit(t *testing.T) {
+	var ready atomic.Bool
+	ready.Store(true)
+	srv := httptest.NewServer(NewRouter(LoadConfig(), newMemStore(), &ready, nil, RateLimit(&allowN{n: 2})))
+	t.Cleanup(srv.Close)
+
+	for i := range 2 {
+		if res, _ := http.Get(srv.URL + "/api/items"); res.StatusCode != http.StatusOK {
+			t.Fatalf("request %d: got %d, want 200", i+1, res.StatusCode)
+		}
+	}
+	res, err := http.Get(srv.URL + "/api/items")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusTooManyRequests || strings.TrimSpace(string(body)) != `{"error":"rate limit exceeded"}` {
+		t.Fatalf("over the limit: got %d %s, want 429 with the error body", res.StatusCode, body)
+	}
+	if res.Header.Get("Retry-After") != "60" || res.Header.Get("Content-Type") != "application/json" {
+		t.Errorf("headers: %v", res.Header)
+	}
+
+	// The probes and the info page aren't limited.
+	for _, path := range []string{"/healthz", "/readyz", "/"} {
+		if res, _ := http.Get(srv.URL + path); res.StatusCode != http.StatusOK {
 			t.Errorf("%s: got %d, want 200", path, res.StatusCode)
 		}
 	}

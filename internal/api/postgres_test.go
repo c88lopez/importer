@@ -32,9 +32,9 @@ func TestItemsAPIWithPostgres(t *testing.T) {
 
 	var ready atomic.Bool
 	ready.Store(true)
-	podA := httptest.NewServer(NewRouter(LoadConfig(), storeA, &ready, nil))
+	podA := httptest.NewServer(NewRouter(LoadConfig(), storeA, &ready, nil, nil))
 	defer podA.Close()
-	podB := httptest.NewServer(NewRouter(LoadConfig(), items.NewStore(poolB), &ready, nil))
+	podB := httptest.NewServer(NewRouter(LoadConfig(), items.NewStore(poolB), &ready, nil, nil))
 	defer podB.Close()
 
 	res, err := http.Post(podA.URL+"/api/items", "application/json", strings.NewReader(`{"name":"latex","kind":"import"}`))
@@ -77,7 +77,7 @@ func TestQueriesAreTraced(t *testing.T) {
 
 	var ready atomic.Bool
 	ready.Store(true)
-	srv := httptest.NewServer(TraceRequests(NewRouter(LoadConfig(), s, &ready, nil)))
+	srv := httptest.NewServer(TraceRequests(NewRouter(LoadConfig(), s, &ready, nil, nil)))
 	defer srv.Close()
 	res, err := http.Get(srv.URL + "/api/items")
 	if err != nil {
