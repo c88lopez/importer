@@ -20,6 +20,8 @@ make perf-worker MODE=backlog COUNT=2000   # throughput: a burst, then wait for 
 
 They target the cluster's NodePorts by default. To test `make run-api` / `make run-graphql` instead, run `API_URL=http://host.docker.internal:8080 GRAPHQL_URL=http://host.docker.internal:8081/graphql make perf-rest`.
 
+**Turn rate limiting off first.** k6 sends every request from one IP, so the default limit (100 per minute per IP) would turn most of a run into 429s. Set `RATE_LIMIT_REQUESTS: "0"` in `k8s/api/10-configmap.yaml` and `k8s/graphql/10-configmap.yaml`, apply them, and run `make restart`. Put the limit back afterwards. For `make run-api` / `make run-graphql`, pass `RATE_LIMIT_REQUESTS=0`.
+
 **The data is real.** There's one database, so test items go into the same table as everything else. Each one is named `perf-<run id>-...` and is deleted by the end of its run. If you stop a run with Ctrl+C before it finishes, delete the `perf-` items by hand.
 
 ## Thresholds

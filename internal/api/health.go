@@ -31,34 +31,33 @@ type checkResult struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// newCheckers builds a checker per dependency. Clients connect lazily, so the
-// app still starts when a dependency is down; the failure shows up in /readyz.
-func NewCheckers(cfg Config, db *pgxpool.Pool) ([]checker, func(), error) {
-	var closers []func()
-	cleanup := func() {
-		for _, c := range closers {
-			c()
-		}
+// NewRedisClient connects lazily to REDIS_URL, for the readiness check and
+// the rate limiter. It fails fast instead of retrying: a health check should
+// report "down", and the rate limiter lets requests through rather than make
+// them wait.
+func NewRedisClient(url string) (*redis.Client, error) {
+	opts, err := redis.ParseURL(url)
+	if err != nil {
+		return nil, err
 	}
+	opts.MaxRetries, opts.DialerRetries = -1, 1
+	return redis.NewClient(opts), nil
+}
 
+// NewCheckers builds a checker per dependency. Clients connect lazily, so the
+// app still starts when a dependency is down; the failure shows up in /readyz.
+// db and rdb may be nil: that dependency is then reported as skipped.
+func NewCheckers(cfg Config, db *pgxpool.Pool, rdb *redis.Client) ([]checker, error) {
 	// The pool is shared with the item store; main owns and closes it.
 	pg := checker{name: "postgres"}
 	if db != nil {
 		pg.check = db.Ping
 	}
 
+	// Shared with the rate limiter; main owns and closes it too.
 	rd := checker{name: "redis"}
-	if cfg.RedisURL != "" {
-		opts, err := redis.ParseURL(cfg.RedisURL)
-		if err != nil {
-			cleanup()
-			return nil, nil, err
-		}
-		// Fail fast: a health check should report "down", not retry until the timeout.
-		opts.MaxRetries, opts.DialerRetries = -1, 1
-		client := redis.NewClient(opts)
-		closers = append(closers, func() { _ = client.Close() })
-		rd.check = func(ctx context.Context) error { return client.Ping(ctx).Err() }
+	if rdb != nil {
+		rd.check = func(ctx context.Context) error { return rdb.Ping(ctx).Err() }
 	}
 
 	mq := checker{name: "rabbitmq"}
@@ -79,10 +78,9 @@ func NewCheckers(cfg Config, db *pgxpool.Pool) ([]checker, func(), error) {
 
 	checks := []checker{pg, rd, mq}
 	if err := markCritical(checks, cfg.CriticalDeps); err != nil {
-		cleanup()
-		return nil, nil, err
+		return nil, err
 	}
-	return checks, cleanup, nil
+	return checks, nil
 }
 
 // markCritical flags the named checkers as critical, rejecting unknown names

@@ -16,6 +16,8 @@ import (
 	"github.com/99designs/gqlgen/graphql/playground"
 	"github.com/vektah/gqlparser/v2/ast"
 	"github.com/vektah/gqlparser/v2/gqlerror"
+
+	"github.com/vandelay-labs/importer/internal/ratelimit"
 )
 
 // maxComplexity caps how much work one query can ask for. Every field counts
@@ -26,16 +28,22 @@ const maxComplexity = 200
 // NewRouter serves GraphQL on /graphql, GraphiQL on GET / (to try queries in
 // the browser), and the probes. readyz is the same readiness check as the
 // API's. POST / is GraphQL too, so a client pointed at the bare host (as
-// Postman suggests) works instead of getting 405.
-func NewRouter(store itemStore, version string, readyz http.Handler) http.Handler {
+// Postman suggests) works instead of getting 405. limit wraps the GraphQL
+// endpoint (see RateLimit); nil means no limit.
+func NewRouter(store itemStore, version string, readyz http.Handler, limit func(http.Handler) http.Handler) http.Handler {
 	mux := http.NewServeMux()
+	if limit == nil {
+		limit = func(h http.Handler) http.Handler { return h }
+	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}` + "\n"))
 	})
 	mux.Handle("GET /readyz", readyz)
 	mux.Handle("GET /{$}", playground.Handler(fmt.Sprintf("importer-graphql %s (%s)", version, hostname()), "/graphql"))
-	gql := requireGraphQLContentType(http.MaxBytesHandler(NewHandler(store), 1<<20))
+	// Limited before anything else, so requests refused for their content
+	// type or size count too.
+	gql := limit(requireGraphQLContentType(http.MaxBytesHandler(NewHandler(store), 1<<20)))
 	mux.Handle("/graphql", gql)
 	mux.Handle("POST /{$}", gql)
 	return mux
@@ -83,6 +91,17 @@ func requireGraphQLContentType(next http.Handler) http.Handler {
 			}
 		}
 		next.ServeHTTP(w, r)
+	})
+}
+
+// RateLimit returns the middleware that limits the GraphQL endpoint per
+// client IP, answering 429 with a GraphQL-shaped error (code RATE_LIMITED)
+// past the limit.
+func RateLimit(l ratelimit.Allower) func(http.Handler) http.Handler {
+	return ratelimit.Middleware(l, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte(`{"errors":[{"message":"rate limit exceeded","extensions":{"code":"RATE_LIMITED"}}]}` + "\n"))
 	})
 }
 

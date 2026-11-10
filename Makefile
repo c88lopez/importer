@@ -10,7 +10,7 @@ DATA_NS   := data
 .PHONY: tunnel dev-setup run-api run-worker run-graphql generate test build image migrate-local migration release secrets status logs restart perf-rest perf-graphql perf-worker
 
 ## --- local ---
-# Local runs use the cluster's Postgres and RabbitMQ through `make tunnel`,
+# Local runs use the cluster's Postgres, RabbitMQ and Redis through `make tunnel`,
 # with credentials read from their Secrets (each value is fetched once, and
 # only by targets that use it). Override with the LOCAL_* variables.
 #
@@ -22,19 +22,24 @@ PG_USER = $(eval PG_USER := $(call secret,postgres-app,username))$(PG_USER)
 PG_PASS = $(eval PG_PASS := $(call secret,postgres-app,password))$(PG_PASS)
 MQ_USER = $(eval MQ_USER := $(call secret,rabbitmq-default-user,username))$(MQ_USER)
 MQ_PASS = $(eval MQ_PASS := $(call secret,rabbitmq-default-user,password))$(MQ_PASS)
+RD_PASS = $(eval RD_PASS := $(call secret,redis-secret,REDIS_PASSWORD))$(RD_PASS)
 TEST_VHOST := importer-test
 
 LOCAL_DATABASE_URL      ?= postgres://$(PG_USER):$(PG_PASS)@localhost:5433/app
 LOCAL_TEST_DATABASE_URL ?= postgres://$(PG_USER):$(PG_PASS)@localhost:5433/importer_test
 LOCAL_RABBITMQ_URL      ?= amqp://$(MQ_USER):$(MQ_PASS)@localhost:5673/
 LOCAL_TEST_RABBITMQ_URL ?= amqp://$(MQ_USER):$(MQ_PASS)@localhost:5673/$(TEST_VHOST)
+# DB 1 for tests; they only touch keys under their own prefix.
+LOCAL_REDIS_URL         ?= redis://:$(RD_PASS)@localhost:6380/0
+LOCAL_TEST_REDIS_URL    ?= redis://:$(RD_PASS)@localhost:6380/1
 
-# Leave it running in its own terminal. Ports 5433 and 5673, so it doesn't
-# clash with a forward of Postgres on 5432 you may already have.
-tunnel: ## forward the cluster's Postgres (5433) and RabbitMQ (5673, UI on 15673) to localhost
+# Leave it running in its own terminal. Ports 5433, 5673 and 6380, so it
+# doesn't clash with forwards on the default ports you may already have.
+tunnel: ## forward the cluster's Postgres (5433), RabbitMQ (5673, UI on 15673) and Redis (6380) to localhost
 	@trap 'kill 0' INT TERM EXIT; \
 	kubectl -n $(DATA_NS) port-forward svc/postgres-rw 5433:5432 & \
 	kubectl -n $(DATA_NS) port-forward svc/rabbitmq 5673:5672 15673:15672 & \
+	kubectl -n $(DATA_NS) port-forward svc/redis 6380:6379 & \
 	wait
 
 dev-setup: ## once: create the test database and the test vhost in the cluster
@@ -44,6 +49,7 @@ dev-setup: ## once: create the test database and the test vhost in the cluster
 
 run-api: export DATABASE_URL = $(LOCAL_DATABASE_URL)
 run-api: export RABBITMQ_URL = $(LOCAL_RABBITMQ_URL)
+run-api: export REDIS_URL = $(LOCAL_REDIS_URL)
 run-api: ## run the API on your machine against the cluster (needs make tunnel): :8080, metrics on :9464
 	go run ./cmd/api
 
@@ -56,6 +62,7 @@ run-worker: ## run the worker on your machine against the cluster (needs make tu
 # Ports 8081 and 9466, so it runs next to run-api.
 run-graphql: export DATABASE_URL = $(LOCAL_DATABASE_URL)
 run-graphql: export RABBITMQ_URL = $(LOCAL_RABBITMQ_URL)
+run-graphql: export REDIS_URL = $(LOCAL_REDIS_URL)
 run-graphql: ## run the GraphQL service on your machine against the cluster (needs make tunnel): GraphiQL on :8081, metrics on :9466
 	PORT=8081 METRICS_PORT=9466 go run ./cmd/graphql
 
@@ -65,7 +72,8 @@ generate: ## regenerate the GraphQL code after editing internal/gql/schema.graph
 # -p 1: packages share the test database, so they run one at a time.
 test: export TEST_DATABASE_URL = $(LOCAL_TEST_DATABASE_URL)
 test: export TEST_RABBITMQ_URL = $(LOCAL_TEST_RABBITMQ_URL)
-test: ## unit tests, plus Postgres and RabbitMQ tests in the cluster's test database and vhost (needs make tunnel)
+test: export TEST_REDIS_URL = $(LOCAL_TEST_REDIS_URL)
+test: ## unit tests, plus Postgres, RabbitMQ and Redis tests in the cluster's test database, vhost and Redis DB 1 (needs make tunnel)
 	go test -p 1 ./...
 
 build: ## build every binary into bin/
@@ -147,6 +155,7 @@ secrets: ## create or update the services' Secrets from the cluster's Postgres, 
 	kubectl -n $(NAMESPACE) create secret generic importer-graphql-deps \
 	  --from-literal=DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n $(DATA_NS) get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
+	  --from-literal=REDIS_URL="redis://:$$(kubectl -n $(DATA_NS) get secret redis-secret -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d)@redis.$(DATA_NS).svc.cluster.local:6379/0" \
 	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -
 
 status: ## show everything running in the namespace

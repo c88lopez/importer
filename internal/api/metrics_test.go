@@ -29,7 +29,7 @@ func TestMetrics(t *testing.T) {
 
 	var ready atomic.Bool
 	ready.Store(true)
-	srv := httptest.NewServer(TraceRequests(NewRouter(LoadConfig(), newMemStore(), &ready, nil)))
+	srv := httptest.NewServer(TraceRequests(NewRouter(LoadConfig(), newMemStore(), &ready, nil, nil)))
 	defer srv.Close()
 	for _, path := range []string{"/api/items", "/api/items/42", "/healthz", "/readyz"} {
 		res, err := http.Get(srv.URL + path)

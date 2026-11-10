@@ -14,6 +14,7 @@ import (
 	"github.com/99designs/gqlgen/client"
 
 	"github.com/vandelay-labs/importer/internal/items"
+	"github.com/vandelay-labs/importer/internal/ratelimit"
 )
 
 // memStore is an in-memory itemStore, so these tests run without a database.
@@ -165,7 +166,7 @@ func TestComplexityLimit(t *testing.T) {
 }
 
 func TestContentTypes(t *testing.T) {
-	srv := httptest.NewServer(NewRouter(&memStore{}, "test", http.NotFoundHandler()))
+	srv := httptest.NewServer(NewRouter(&memStore{}, "test", http.NotFoundHandler(), nil))
 	t.Cleanup(srv.Close)
 
 	tests := []struct {
@@ -198,5 +199,53 @@ func TestContentTypes(t *testing.T) {
 				t.Fatalf("got %d %s, want %d containing %q", res.StatusCode, body, tt.wantStatus, tt.wantBody)
 			}
 		})
+	}
+}
+
+// allowN is a rate limiter that allows the first n requests, from any IP.
+type allowN struct {
+	mu sync.Mutex
+	n  int
+}
+
+func (a *allowN) Allow(context.Context, string) (ratelimit.Result, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.n--
+	return ratelimit.Result{Allowed: a.n >= 0, Limit: 2, Remaining: max(a.n, 0), Reset: time.Minute}, nil
+}
+
+func TestRateLimit(t *testing.T) {
+	srv := httptest.NewServer(NewRouter(&memStore{}, "test", http.NotFoundHandler(), RateLimit(&allowN{n: 2})))
+	t.Cleanup(srv.Close)
+	post := func() *http.Response {
+		t.Helper()
+		res, err := http.Post(srv.URL+"/graphql", "application/json", strings.NewReader(`{"query":"{ items { id } }"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res
+	}
+
+	for i := range 2 {
+		if res := post(); res.StatusCode != http.StatusOK {
+			t.Fatalf("request %d: got %d, want 200", i+1, res.StatusCode)
+		}
+	}
+	res := post()
+	defer res.Body.Close()
+	body, _ := io.ReadAll(res.Body)
+	if res.StatusCode != http.StatusTooManyRequests || !strings.Contains(string(body), `"code":"RATE_LIMITED"`) {
+		t.Fatalf("over the limit: got %d %s, want 429 with RATE_LIMITED", res.StatusCode, body)
+	}
+	if res.Header.Get("Retry-After") != "60" {
+		t.Errorf("Retry-After: got %q, want 60", res.Header.Get("Retry-After"))
+	}
+
+	// GraphiQL and the probes aren't limited.
+	for _, path := range []string{"/", "/healthz"} {
+		if res, _ := http.Get(srv.URL + path); res.StatusCode != http.StatusOK {
+			t.Errorf("%s: got %d, want 200", path, res.StatusCode)
+		}
 	}
 }

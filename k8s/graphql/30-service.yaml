@@ -7,6 +7,10 @@ metadata:
   namespace: importer
 spec:
   type: NodePort
+  # Local: keep the client's IP as the request's source address. With the
+  # default (Cluster), kube-proxy replaces it with a node's, and the rate
+  # limiter, which counts per IP, would put every client in one bucket.
+  externalTrafficPolicy: Local
   selector:
     app: importer-graphql
   ports:

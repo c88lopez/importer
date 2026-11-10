@@ -51,7 +51,24 @@ cmd/api ──go build──▶ binary ──docker build──▶ image ──A
 | GET    | `/api/items/{id}` | Get one item                                   |
 | DELETE | `/api/items/{id}` | Delete one item                                |
 
-Config comes from env vars: `PORT`, `APP_ENV`, `WELCOME_MESSAGE`, plus the dependency URLs below.
+Config comes from env vars: `PORT`, `APP_ENV`, `WELCOME_MESSAGE`, `RATE_LIMIT_*` (below), plus the dependency URLs below.
+
+### Rate limiting
+
+The item endpoints (`/api/items*`, and `/graphql` / `POST /` on importer-graphql) are limited per client IP. The probes, `GET /` and `/metrics` aren't.
+
+| Env var               | Default | Meaning                                 |
+| --------------------- | ------- | --------------------------------------- |
+| `RATE_LIMIT_REQUESTS` | `100`   | Requests per IP per window; `0` turns limiting off |
+| `RATE_LIMIT_WINDOW`   | `1m`    | Window length, as a Go duration (`30s`, `1m`) |
+
+- **Shared counts:** the counts are kept in Redis (`REDIS_URL`), so every pod of a service shares them. Each service has its own budget: key `ratelimit:importer-api:<ip>` or `ratelimit:importer-graphql:<ip>`.
+- **No Redis, no limit:** without `REDIS_URL`, limiting is off and the service logs a warning at startup.
+- **Algorithm:** a fixed window. The first request from an IP starts a window. Every request in it counts, and the count starts over when it ends.
+- **Headers:** every limited response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` (seconds until the window ends).
+- **Over the limit:** the response is `429 Too Many Requests` with `Retry-After`. The body is `{"error":"rate limit exceeded"}` on REST, and a GraphQL error with code `RATE_LIMITED` on importer-graphql.
+- **Fails open:** if Redis doesn't answer within 100ms, the request goes through and a warning is logged. `http_server_ratelimit_decisions_total{outcome="error"}` counts these, next to `allowed` and `limited`. Redis is not critical, so `/readyz` only reports it as `degraded`.
+- **Client IP:** the IP is the connection's source address. `X-Forwarded-For` is ignored, because clients can set it to anything. Both Services use `externalTrafficPolicy: Local` so that address is the client's, not a node's.
 
 ### Dependency checks
 
