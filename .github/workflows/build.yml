@@ -69,8 +69,27 @@ jobs:
       # The GraphQL code generated from the schema must be committed and current.
       - name: gqlgen generate is up to date
         run: make generate && git diff --exit-code
-      # -p 1: packages share the test database, so run them one at a time.
-      - run: go test -v -p 1 ./...
+      # Runs the tests with coverage (see make cover), pointed at the
+      # service containers above instead of the cluster.
+      - run: make cover LOCAL_TEST_DATABASE_URL="$TEST_DATABASE_URL" LOCAL_TEST_RABBITMQ_URL="$TEST_RABBITMQ_URL" LOCAL_TEST_REDIS_URL="$TEST_REDIS_URL"
+      - name: Coverage summary
+        run: |
+          go tool cover -html=coverage.out -o coverage.html
+          {
+            echo "### Coverage: $(go tool cover -func=coverage.out | tail -1 | awk '{print $NF}')"
+            echo '<details><summary>Per function</summary>'
+            echo
+            echo '```'
+            go tool cover -func=coverage.out
+            echo '```'
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage.out
+            coverage.html
 
   image:
     needs: test

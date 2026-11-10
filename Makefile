@@ -7,7 +7,7 @@ NAMESPACE := importer
 # Where Postgres, RabbitMQ and Redis run (the platform repo's manifests/data/).
 DATA_NS   := data
 
-.PHONY: tunnel dev-setup run-api run-worker run-graphql generate test build image migrate-local migration release secrets status logs restart perf-rest perf-graphql perf-worker
+.PHONY: tunnel dev-setup run-api run-worker run-graphql generate test cover cover-html build image migrate-local migration release secrets status logs restart perf-rest perf-graphql perf-worker
 
 ## --- local ---
 # Local runs use the cluster's Postgres, RabbitMQ and Redis through `make tunnel`,
@@ -75,6 +75,21 @@ test: export TEST_RABBITMQ_URL = $(LOCAL_TEST_RABBITMQ_URL)
 test: export TEST_REDIS_URL = $(LOCAL_TEST_REDIS_URL)
 test: ## unit tests, plus Postgres, RabbitMQ and Redis tests in the cluster's test database, vhost and Redis DB 1 (needs make tunnel)
 	go test -p 1 ./...
+
+# -coverpkg=./... credits code to whichever package's tests run it, so code
+# exercised from another package counts. gqlgen's generated code is dropped
+# from the profile: it is ~3000 lines nobody tests and would swamp the total.
+# CI runs this with LOCAL_TEST_*_URL set to its own Postgres, RabbitMQ and Redis.
+cover: export TEST_DATABASE_URL = $(LOCAL_TEST_DATABASE_URL)
+cover: export TEST_RABBITMQ_URL = $(LOCAL_TEST_RABBITMQ_URL)
+cover: export TEST_REDIS_URL = $(LOCAL_TEST_REDIS_URL)
+cover: ## the tests with coverage: writes coverage.out and prints coverage per function and in total (needs make tunnel)
+	go test -p 1 -coverpkg=./... -coverprofile=coverage.out ./...
+	grep -v -E '/(generated|[a-z_]+_gen)\.go:' coverage.out > coverage.out.tmp && mv coverage.out.tmp coverage.out
+	go tool cover -func=coverage.out
+
+cover-html: ## open the coverage.out from make cover in the browser, line by line
+	go tool cover -html=coverage.out
 
 build: ## build every binary into bin/
 	go build -ldflags "-X main.version=$(VERSION)" -o bin/importer-api ./cmd/api
