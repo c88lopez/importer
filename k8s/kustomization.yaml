@@ -28,13 +28,13 @@ resources:
 
 images:
   - name: ghcr.io/c88lopez/importer-api
-    newTag: 1.10.0
+    newTag: 1.11.0
     newName: ghcr.io/c88lopez/importer-api
   - name: ghcr.io/c88lopez/importer-worker
-    newTag: 1.10.0
+    newTag: 1.11.0
     newName: ghcr.io/c88lopez/importer-worker
   - name: ghcr.io/c88lopez/importer-graphql
-    newTag: 1.10.0
+    newTag: 1.11.0
     newName: ghcr.io/c88lopez/importer-graphql
 
 # One ConfigMap per dashboard. Grafana's sidecar loads any ConfigMap labeled
