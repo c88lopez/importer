@@ -68,7 +68,7 @@ The item endpoints (`/api/items*`, and `/graphql` / `POST /` on importer-graphql
 - **Headers:** every limited response carries `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset` (seconds until the window ends).
 - **Over the limit:** the response is `429 Too Many Requests` with `Retry-After`. The body is `{"error":"rate limit exceeded"}` on REST, and a GraphQL error with code `RATE_LIMITED` on importer-graphql.
 - **Fails open:** if Redis doesn't answer within 100ms, the request goes through and a warning is logged. `http_server_ratelimit_decisions_total{outcome="error"}` counts these, next to `allowed` and `limited`. Redis is not critical, so `/readyz` only reports it as `degraded`.
-- **Client IP:** the IP is the connection's source address. `X-Forwarded-For` is ignored, because clients can set it to anything. Both Services use `externalTrafficPolicy: Local` so that address is the client's, not a node's.
+- **Client IP:** the IP is the connection's source address. `X-Forwarded-For` is ignored, because clients can set it to anything. Both Services use `externalTrafficPolicy: Local` so that address is the client's, not a node's. On Docker Desktop that's not enough: its port forwarding replaces every LAN client's address with one of its own (`192.168.65.x`), so all clients share one budget. The ConfigMaps set the limit to 1000 for that reason.
 
 ### Dependency checks
 
