@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/vandelay-labs/importer/internal/items"
 	"github.com/vandelay-labs/importer/internal/ratelimit"
 )
 
@@ -53,10 +55,40 @@ func TestItemsCRUD(t *testing.T) {
 
 func TestCreateValidation(t *testing.T) {
 	srv := newTestServer(t)
-	for _, body := range []string{`{`, `{"name":"","kind":"import"}`, `{"name":"x","kind":"smuggle"}`} {
+	for _, body := range []string{
+		`{`,
+		`{"name":"","kind":"import"}`,
+		`{"name":"x","kind":"smuggle"}`,
+		`{"name":"x","kind":"import","priority":"urgent"}`,
+	} {
 		res, _ := http.Post(srv.URL+"/api/items", "application/json", strings.NewReader(body))
 		if res.StatusCode != http.StatusBadRequest {
 			t.Errorf("body %s: got %d, want 400", body, res.StatusCode)
+		}
+	}
+}
+
+// Priority is optional and defaults to normal.
+func TestCreatePriority(t *testing.T) {
+	srv := newTestServer(t)
+	for body, want := range map[string]string{
+		`{"name":"latex","kind":"import"}`:                   "normal",
+		`{"name":"latex","kind":"import","priority":""}`:     "normal",
+		`{"name":"latex","kind":"import","priority":"low"}`:  "low",
+		`{"name":"latex","kind":"import","priority":"high"}`: "high",
+	} {
+		res, err := http.Post(srv.URL+"/api/items", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var it items.Item
+		err = json.NewDecoder(res.Body).Decode(&it)
+		res.Body.Close()
+		if res.StatusCode != http.StatusCreated || err != nil {
+			t.Fatalf("body %s: got %d, %v; want 201", body, res.StatusCode, err)
+		}
+		if it.Priority != want {
+			t.Errorf("body %s: priority = %q, want %q", body, it.Priority, want)
 		}
 	}
 }

@@ -42,10 +42,10 @@ func (s *memStore) Get(ctx context.Context, id int64) (items.Item, error) {
 	return it, nil
 }
 
-func (s *memStore) Create(ctx context.Context, name, kind string) (items.Item, error) {
+func (s *memStore) Create(ctx context.Context, name, kind, priority string) (items.Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	it := items.Item{ID: s.nextID, Name: name, Kind: kind, CreatedAt: time.Now().UTC(), Status: "pending"}
+	it := items.Item{ID: s.nextID, Name: name, Kind: kind, Priority: priority, CreatedAt: time.Now().UTC(), Status: "pending"}
 	s.items[it.ID] = it
 	s.nextID++
 	return it, nil

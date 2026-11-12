@@ -20,7 +20,8 @@ type Item struct {
 	// database, so clients don't break. It's a BIGINT in Postgres.
 	ID        int64     `json:"id,string"`
 	Name      string    `json:"name"`
-	Kind      string    `json:"kind"` // "import" or "export"
+	Kind      string    `json:"kind"`     // "import" or "export"
+	Priority  string    `json:"priority"` // "low", "normal" or "high"
 	CreatedAt time.Time `json:"createdAt"`
 	// "pending" until importer-worker processes the item, then "done".
 	Status      string     `json:"status"`
@@ -43,7 +44,7 @@ func NewStore(db *pgxpool.Pool) *Store {
 	return &Store{db: db, OutboxWritten: func() {}}
 }
 
-const itemColumns = "id, name, kind, created_at, status, processed_at"
+const itemColumns = "id, name, kind, priority, created_at, status, processed_at"
 
 func (s *Store) List(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.Query(ctx, "SELECT "+itemColumns+" FROM items ORDER BY created_at, id")
@@ -62,7 +63,7 @@ func (s *Store) Get(ctx context.Context, id int64) (Item, error) {
 // Create inserts the item and its item.created event in one transaction:
 // either both are committed or neither is, so the worker never misses an item
 // or hears about one that doesn't exist.
-func (s *Store) Create(ctx context.Context, name, kind string) (Item, error) {
+func (s *Store) Create(ctx context.Context, name, kind, priority string) (Item, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return Item{}, err
@@ -70,7 +71,7 @@ func (s *Store) Create(ctx context.Context, name, kind string) (Item, error) {
 	defer tx.Rollback(ctx) // no-op after Commit
 
 	rows, _ := tx.Query(ctx,
-		"INSERT INTO items (name, kind) VALUES ($1, $2) RETURNING "+itemColumns, name, kind)
+		"INSERT INTO items (name, kind, priority) VALUES ($1, $2, $3) RETURNING "+itemColumns, name, kind, priority)
 	it, err := collectOneItem(rows)
 	if err != nil {
 		return Item{}, err
@@ -111,7 +112,7 @@ func (s *Store) MarkDone(ctx context.Context, id int64) (bool, error) {
 
 func scanItem(row pgx.CollectableRow) (Item, error) {
 	var it Item
-	err := row.Scan(&it.ID, &it.Name, &it.Kind, &it.CreatedAt, &it.Status, &it.ProcessedAt)
+	err := row.Scan(&it.ID, &it.Name, &it.Kind, &it.Priority, &it.CreatedAt, &it.Status, &it.ProcessedAt)
 	it.CreatedAt = it.CreatedAt.UTC()
 	if it.ProcessedAt != nil {
 		*it.ProcessedAt = it.ProcessedAt.UTC()
