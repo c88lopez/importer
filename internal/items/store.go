@@ -5,6 +5,7 @@ package items
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,12 +22,26 @@ type Item struct {
 	ID        int64     `json:"id,string"`
 	Name      string    `json:"name"`
 	Kind      string    `json:"kind"`     // "import" or "export"
-	Priority  string    `json:"priority"` // "low", "normal" or "high"
+	Priority  string    `json:"priority"` // one of Priorities
 	CreatedAt time.Time `json:"createdAt"`
 	// "pending" until importer-worker processes the item, then "done".
 	Status      string     `json:"status"`
 	ProcessedAt *time.Time `json:"processedAt,omitempty"`
 }
+
+// Item priorities. Adding one also needs a migration that changes
+// items_priority_check and a value in the GraphQL Priority enum; tests fail
+// until both are done.
+const (
+	PriorityLow    = "low"
+	PriorityNormal = "normal"
+	PriorityHigh   = "high"
+)
+
+// Priorities lists every valid priority, lowest first.
+var Priorities = []string{PriorityLow, PriorityNormal, PriorityHigh}
+
+func ValidPriority(p string) bool { return slices.Contains(Priorities, p) }
 
 var ErrNotFound = errors.New("not found")
 

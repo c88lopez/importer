@@ -68,6 +68,12 @@ func TestCreateValidation(t *testing.T) {
 	}
 }
 
+func TestPriorityError(t *testing.T) {
+	if want := `priority must be "low", "normal" or "high"`; priorityError != want {
+		t.Errorf("priorityError = %s, want %s", priorityError, want)
+	}
+}
+
 // Priority is optional and defaults to normal.
 func TestCreatePriority(t *testing.T) {
 	srv := newTestServer(t)
@@ -90,6 +96,48 @@ func TestCreatePriority(t *testing.T) {
 		if it.Priority != want {
 			t.Errorf("body %s: priority = %q, want %q", body, it.Priority, want)
 		}
+	}
+}
+
+// GET and the list return the stored priority, not only the create response.
+func TestReadPriority(t *testing.T) {
+	srv := newTestServer(t)
+	for _, body := range []string{
+		`{"name":"latex","kind":"import","priority":"low"}`,
+		`{"name":"chips","kind":"export","priority":"high"}`,
+	} {
+		res, err := http.Post(srv.URL+"/api/items", "application/json", strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+	}
+
+	var one items.Item
+	getJSON(t, srv.URL+"/api/items/2", &one)
+	if one.Priority != "high" {
+		t.Errorf("get: priority = %q, want high", one.Priority)
+	}
+
+	var list []items.Item
+	getJSON(t, srv.URL+"/api/items", &list)
+	if len(list) != 2 || list[0].Priority != "low" || list[1].Priority != "high" {
+		t.Errorf("list = %+v, want priorities low then high", list)
+	}
+}
+
+func getJSON(t *testing.T, url string, v any) {
+	t.Helper()
+	res, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatalf("GET %s: got %d, want 200", url, res.StatusCode)
+	}
+	if err := json.NewDecoder(res.Body).Decode(v); err != nil {
+		t.Fatal(err)
 	}
 }
 

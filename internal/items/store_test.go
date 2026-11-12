@@ -18,16 +18,13 @@ func TestStoreCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	latex, err := s.Create(ctx, "latex", "import", "normal")
+	latex, err := s.Create(ctx, "latex", "import", PriorityLow)
 	if err != nil {
 		t.Fatal(err)
 	}
-	chips, err := s.Create(ctx, "potato chips", "export", "high")
+	chips, err := s.Create(ctx, "potato chips", "export", PriorityHigh)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if chips.Priority != "high" {
-		t.Errorf("create: priority = %q, want high", chips.Priority)
 	}
 	if latex.ID == 0 || latex.CreatedAt.IsZero() {
 		t.Fatalf("create didn't return generated columns: %+v", latex)
@@ -37,16 +34,16 @@ func TestStoreCRUD(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != latex {
-		t.Errorf("get = %+v, want %+v", got, latex)
+	if got != latex || got.Priority != PriorityLow {
+		t.Errorf("get = %+v, want %+v with priority low", got, latex)
 	}
 
 	items, err := s.List(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(items) != 2 || items[0].ID != latex.ID || items[1].ID != chips.ID {
-		t.Errorf("list = %+v, want latex then chips", items)
+	if len(items) != 2 || items[0] != latex || items[1] != chips || items[1].Priority != PriorityHigh {
+		t.Errorf("list = %+v, want latex (low) then chips (high)", items)
 	}
 
 	if err := s.Delete(ctx, latex.ID); err != nil {
@@ -120,6 +117,17 @@ func TestStoreRejectsBadPriority(t *testing.T) {
 	_, err := s.Create(context.Background(), "x", "import", "urgent")
 	if err == nil || errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want a constraint violation", err)
+	}
+}
+
+// Every priority the code accepts passes items_priority_check, so a new one
+// can't ship without its migration.
+func TestStoreAcceptsEveryPriority(t *testing.T) {
+	s := newTestStore(t)
+	for _, p := range Priorities {
+		if _, err := s.Create(context.Background(), "x", "import", p); err != nil {
+			t.Errorf("priority %q: %v", p, err)
+		}
 	}
 }
 

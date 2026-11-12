@@ -87,12 +87,11 @@ func NewRouter(cfg Config, s itemStore, readyz http.Handler, limit func(http.Han
 			writeError(w, http.StatusBadRequest, `kind must be "import" or "export"`)
 			return
 		}
-		switch body.Priority {
-		case "":
-			body.Priority = "normal"
-		case "low", "normal", "high":
-		default:
-			writeError(w, http.StatusBadRequest, `priority must be "low", "normal" or "high"`)
+		if body.Priority == "" {
+			body.Priority = items.PriorityNormal
+		}
+		if !items.ValidPriority(body.Priority) {
+			writeError(w, http.StatusBadRequest, priorityError)
 			return
 		}
 		it, err := s.Create(r.Context(), body.Name, body.Kind, body.Priority)
@@ -144,6 +143,16 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+// priorityError is `priority must be "low", "normal" or "high"`, built from
+// items.Priorities so a new priority shows up in it.
+var priorityError = func() string {
+	q := make([]string, len(items.Priorities))
+	for i, p := range items.Priorities {
+		q[i] = strconv.Quote(p)
+	}
+	return "priority must be " + strings.Join(q[:len(q)-1], ", ") + " or " + q[len(q)-1]
+}()
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
