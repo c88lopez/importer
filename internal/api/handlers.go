@@ -19,7 +19,7 @@ import (
 type itemStore interface {
 	List(ctx context.Context) ([]items.Item, error)
 	Get(ctx context.Context, id int64) (items.Item, error)
-	Create(ctx context.Context, name, kind string) (items.Item, error)
+	Create(ctx context.Context, name, kind, priority string) (items.Item, error)
 	Delete(ctx context.Context, id int64) error
 }
 
@@ -70,8 +70,9 @@ func NewRouter(cfg Config, s itemStore, readyz http.Handler, limit func(http.Han
 
 	limited("POST /api/items", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
-			Name string `json:"name"`
-			Kind string `json:"kind"`
+			Name     string `json:"name"`
+			Kind     string `json:"kind"`
+			Priority string `json:"priority"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -86,7 +87,15 @@ func NewRouter(cfg Config, s itemStore, readyz http.Handler, limit func(http.Han
 			writeError(w, http.StatusBadRequest, `kind must be "import" or "export"`)
 			return
 		}
-		it, err := s.Create(r.Context(), body.Name, body.Kind)
+		switch body.Priority {
+		case "":
+			body.Priority = "normal"
+		case "low", "normal", "high":
+		default:
+			writeError(w, http.StatusBadRequest, `priority must be "low", "normal" or "high"`)
+			return
+		}
+		it, err := s.Create(r.Context(), body.Name, body.Kind, body.Priority)
 		if err != nil {
 			writeStoreError(w, r, err)
 			return

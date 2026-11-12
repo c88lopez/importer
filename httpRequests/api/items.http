@@ -42,7 +42,8 @@ Content-Type: application/json
 
 {
   "name": "{{exportName}}",
-  "kind": "export"
+  "kind": "export",
+  "priority": "high"
 }
 
 ### Get the item created above
@@ -73,6 +74,16 @@ Content-Type: application/json
 {
   "name": "latex",
   "kind": "smuggle"
+}
+
+### Validation: priority must be "low", "normal" or "high" (400)
+POST {{host}}/api/items
+Content-Type: application/json
+
+{
+  "name": "latex",
+  "kind": "import",
+  "priority": "urgent"
 }
 
 ### Validation: malformed JSON (400)

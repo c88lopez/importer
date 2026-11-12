@@ -21,7 +21,7 @@
 GRAPHQL {{graphqlHost}}/graphql
 
 query Items {
-  items { id name kind status createdAt processedAt }
+  items { id name kind priority status createdAt processedAt }
 }
 
 > {%
@@ -42,7 +42,7 @@ query ItemNames {
 GRAPHQL {{graphqlHost}}/graphql
 
 mutation CreateImport($input: CreateItemInput!) {
-  createItem(input: $input) { id name kind status }
+  createItem(input: $input) { id name kind priority status }
 }
 
 {
@@ -61,18 +61,18 @@ mutation CreateImport($input: CreateItemInput!) {
 GRAPHQL {{graphqlHost}}/graphql
 
 mutation CreateExport($input: CreateItemInput!) {
-  createItem(input: $input) { id name kind status }
+  createItem(input: $input) { id name kind priority status }
 }
 
 {
-  "input": { "name": "{{exportName}}", "kind": "EXPORT" }
+  "input": { "name": "{{exportName}}", "kind": "EXPORT", "priority": "HIGH" }
 }
 
 ### Get the item created above (status goes PENDING -> DONE once the worker has it)
 GRAPHQL {{graphqlHost}}/graphql
 
 query Item($id: ID!) {
-  item(id: $id) { id name kind status processedAt }
+  item(id: $id) { id name kind priority status processedAt }
 }
 
 { "id": "{{itemId}}" }
@@ -122,6 +122,13 @@ GRAPHQL {{graphqlHost}}/graphql
 
 mutation BadKind {
   createItem(input: { name: "latex", kind: SMUGGLE }) { id }
+}
+
+### Validation: priority must be LOW, NORMAL or HIGH (the schema rejects it: 422)
+GRAPHQL {{graphqlHost}}/graphql
+
+mutation BadPriority {
+  createItem(input: { name: "latex", kind: IMPORT, priority: URGENT }) { id }
 }
 
 ### Validation: a field that doesn't exist (422)

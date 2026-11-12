@@ -46,14 +46,14 @@ func (s *memStore) Get(ctx context.Context, id int64) (items.Item, error) {
 	return items.Item{}, items.ErrNotFound
 }
 
-func (s *memStore) Create(ctx context.Context, name, kind string) (items.Item, error) {
+func (s *memStore) Create(ctx context.Context, name, kind, priority string) (items.Item, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.err != nil {
 		return items.Item{}, s.err
 	}
 	s.nextID++
-	it := items.Item{ID: s.nextID, Name: name, Kind: kind, Status: "pending", CreatedAt: time.Now()}
+	it := items.Item{ID: s.nextID, Name: name, Kind: kind, Priority: priority, Status: "pending", CreatedAt: time.Now()}
 	s.items = append(s.items, it)
 	return it, nil
 }
@@ -77,6 +77,7 @@ type item struct {
 	ID          string
 	Name        string
 	Kind        string
+	Priority    string
 	Status      string
 	ProcessedAt *string
 }
@@ -85,8 +86,8 @@ func TestItemsCRUD(t *testing.T) {
 	c := client.New(NewHandler(&memStore{}))
 
 	var created struct{ CreateItem item }
-	c.MustPost(`mutation { createItem(input: {name: "  latex  ", kind: IMPORT}) { id name kind status processedAt } }`, &created)
-	want := item{ID: "1", Name: "latex", Kind: "IMPORT", Status: "PENDING"}
+	c.MustPost(`mutation { createItem(input: {name: "  latex  ", kind: IMPORT}) { id name kind priority status processedAt } }`, &created)
+	want := item{ID: "1", Name: "latex", Kind: "IMPORT", Priority: "NORMAL", Status: "PENDING"}
 	if created.CreateItem != want {
 		t.Fatalf("createItem: got %+v, want %+v", created.CreateItem, want)
 	}
@@ -122,6 +123,23 @@ func TestItemsCRUD(t *testing.T) {
 	}
 }
 
+// Priority is optional: NORMAL when left out or null.
+func TestCreatePriority(t *testing.T) {
+	c := client.New(NewHandler(&memStore{}))
+	for input, want := range map[string]string{
+		`{name: "x", kind: IMPORT}`:                 "NORMAL",
+		`{name: "x", kind: IMPORT, priority: null}`: "NORMAL",
+		`{name: "x", kind: IMPORT, priority: LOW}`:  "LOW",
+		`{name: "x", kind: IMPORT, priority: HIGH}`: "HIGH",
+	} {
+		var created struct{ CreateItem item }
+		c.MustPost(`mutation { createItem(input: `+input+`) { priority } }`, &created)
+		if created.CreateItem.Priority != want {
+			t.Errorf("%s: priority = %q, want %q", input, created.CreateItem.Priority, want)
+		}
+	}
+}
+
 func TestErrors(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -131,6 +149,7 @@ func TestErrors(t *testing.T) {
 	}{
 		{"blank name", &memStore{}, `mutation { createItem(input: {name: " ", kind: EXPORT}) { id } }`, "name is required"},
 		{"unknown kind", &memStore{}, `mutation { createItem(input: {name: "x", kind: TRADE}) { id } }`, "TRADE"},
+		{"unknown priority", &memStore{}, `mutation { createItem(input: {name: "x", kind: IMPORT, priority: URGENT}) { id } }`, "URGENT"},
 		{"bad id", &memStore{}, `{ item(id: "abc") { id } }`, "is not a valid item id"},
 		{"unknown field", &memStore{}, `{ items { price } }`, `Cannot query field`},
 		// Database errors are hidden from clients, like the REST API's 500s.

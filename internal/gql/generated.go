@@ -45,6 +45,7 @@ type ComplexityRoot struct {
 		ID          func(childComplexity int) int
 		Kind        func(childComplexity int) int
 		Name        func(childComplexity int) int
+		Priority    func(childComplexity int) int
 		ProcessedAt func(childComplexity int) int
 		Status      func(childComplexity int) int
 	}
@@ -66,6 +67,7 @@ type ComplexityRoot struct {
 
 type ItemResolver interface {
 	Kind(ctx context.Context, obj *items.Item) (Kind, error)
+	Priority(ctx context.Context, obj *items.Item) (Priority, error)
 	Status(ctx context.Context, obj *items.Item) (Status, error)
 }
 type MutationResolver interface {
@@ -119,6 +121,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Item.Name(childComplexity), true
+	case "Item.priority":
+		if e.ComplexityRoot.Item.Priority == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Item.Priority(childComplexity), true
 	case "Item.processedAt":
 		if e.ComplexityRoot.Item.ProcessedAt == nil {
 			break
@@ -286,6 +294,8 @@ func (ec *executionContext) childFields_Item(ctx context.Context, field graphql.
 		return ec.fieldContext_Item_name(ctx, field)
 	case "kind":
 		return ec.fieldContext_Item_kind(ctx, field)
+	case "priority":
+		return ec.fieldContext_Item_priority(ctx, field)
 	case "status":
 		return ec.fieldContext_Item_status(ctx, field)
 	case "createdAt":
@@ -609,6 +619,29 @@ func (ec *executionContext) _Item_kind(ctx context.Context, field graphql.Collec
 }
 func (ec *executionContext) fieldContext_Item_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Item", field, true, true, "Kind")
+}
+
+func (ec *executionContext) _Item_priority(ctx context.Context, field graphql.CollectedField, obj *items.Item) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Item_priority(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Item().Priority(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v Priority) graphql.Marshaler {
+			return ec.marshalNPriority2githubᚗcomᚋvandelayᚑlabsᚋimporterᚋinternalᚋgqlᚐPriority(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Item_priority(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Item", field, true, true, "Priority")
 }
 
 func (ec *executionContext) _Item_status(ctx context.Context, field graphql.CollectedField, obj *items.Item) (ret graphql.Marshaler) {
@@ -2004,7 +2037,11 @@ func (ec *executionContext) unmarshalInputCreateItemInput(ctx context.Context, o
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"name", "kind"}
+	if _, present := asMap["priority"]; !present {
+		asMap["priority"] = "NORMAL"
+	}
+
+	fieldsInOrder := [...]string{"name", "kind", "priority"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -2025,6 +2062,13 @@ func (ec *executionContext) unmarshalInputCreateItemInput(ctx context.Context, o
 				return it, err
 			}
 			it.Kind = data
+		case "priority":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("priority"))
+			data, err := ec.unmarshalOPriority2ᚖgithubᚗcomᚋvandelayᚑlabsᚋimporterᚋinternalᚋgqlᚐPriority(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Priority = data
 		}
 	}
 	return it, nil
@@ -2076,6 +2120,12 @@ func (ec *executionContext) _Item(ctx context.Context, sel ast.SelectionSet, obj
 				true, true,
 				func(ctx context.Context) graphql.Marshaler {
 					return ec._Item_kind(ctx, field, obj)
+				})
+		case "priority":
+			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
+				true, true,
+				func(ctx context.Context) graphql.Marshaler {
+					return ec._Item_priority(ctx, field, obj)
 				})
 		case "status":
 			out.ResolveConcurrently(ec.OperationContext, &deferred, i,
@@ -2655,6 +2705,16 @@ func (ec *executionContext) marshalNKind2githubᚗcomᚋvandelayᚑlabsᚋimport
 	return v
 }
 
+func (ec *executionContext) unmarshalNPriority2githubᚗcomᚋvandelayᚑlabsᚋimporterᚋinternalᚋgqlᚐPriority(ctx context.Context, v any) (Priority, error) {
+	var res Priority
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNPriority2githubᚗcomᚋvandelayᚑlabsᚋimporterᚋinternalᚋgqlᚐPriority(ctx context.Context, sel ast.SelectionSet, v Priority) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) unmarshalNStatus2githubᚗcomᚋvandelayᚑlabsᚋimporterᚋinternalᚋgqlᚐStatus(ctx context.Context, v any) (Status, error) {
 	var res Status
 	err := res.UnmarshalGQL(v)
@@ -2870,6 +2930,22 @@ func (ec *executionContext) marshalOItem2ᚖgithubᚗcomᚋvandelayᚑlabsᚋimp
 		return graphql.Null
 	}
 	return ec._Item(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOPriority2ᚖgithubᚗcomᚋvandelayᚑlabsᚋimporterᚋinternalᚋgqlᚐPriority(ctx context.Context, v any) (*Priority, error) {
+	if v == nil {
+		return nil, nil
+	}
+	var res = new(Priority)
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOPriority2ᚖgithubᚗcomᚋvandelayᚑlabsᚋimporterᚋinternalᚋgqlᚐPriority(ctx context.Context, sel ast.SelectionSet, v *Priority) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return v
 }
 
 func (ec *executionContext) unmarshalOString2ᚖstring(ctx context.Context, v any) (*string, error) {

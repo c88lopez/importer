@@ -18,13 +18,16 @@ func TestStoreCRUD(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
 
-	latex, err := s.Create(ctx, "latex", "import")
+	latex, err := s.Create(ctx, "latex", "import", "normal")
 	if err != nil {
 		t.Fatal(err)
 	}
-	chips, err := s.Create(ctx, "potato chips", "export")
+	chips, err := s.Create(ctx, "potato chips", "export", "high")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if chips.Priority != "high" {
+		t.Errorf("create: priority = %q, want high", chips.Priority)
 	}
 	if latex.ID == 0 || latex.CreatedAt.IsZero() {
 		t.Fatalf("create didn't return generated columns: %+v", latex)
@@ -64,7 +67,7 @@ func TestCreateWritesOutbox(t *testing.T) {
 	notified := 0
 	s.OutboxWritten = func() { notified++ }
 
-	it, err := s.Create(ctx, "latex", "import")
+	it, err := s.Create(ctx, "latex", "import", "normal")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,7 +92,7 @@ func TestCreateWritesOutbox(t *testing.T) {
 func TestCreateFailureWritesNoOutbox(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	if _, err := s.Create(ctx, "x", "smuggle"); err == nil {
+	if _, err := s.Create(ctx, "x", "smuggle", "normal"); err == nil {
 		t.Fatal("want a constraint violation")
 	}
 	var n int
@@ -105,7 +108,16 @@ func TestCreateFailureWritesNoOutbox(t *testing.T) {
 // defense; a violation must be a plain error (500), not ErrNotFound (404).
 func TestStoreRejectsBadKind(t *testing.T) {
 	s := newTestStore(t)
-	_, err := s.Create(context.Background(), "x", "smuggle")
+	_, err := s.Create(context.Background(), "x", "smuggle", "normal")
+	if err == nil || errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v, want a constraint violation", err)
+	}
+}
+
+// Like kind, priority is validated by the handlers and by a CHECK constraint.
+func TestStoreRejectsBadPriority(t *testing.T) {
+	s := newTestStore(t)
+	_, err := s.Create(context.Background(), "x", "import", "urgent")
 	if err == nil || errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want a constraint violation", err)
 	}
@@ -115,7 +127,7 @@ func TestStoreRejectsBadKind(t *testing.T) {
 func TestMarkDone(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
-	it, err := s.Create(ctx, "latex", "import")
+	it, err := s.Create(ctx, "latex", "import", "normal")
 	if err != nil {
 		t.Fatal(err)
 	}

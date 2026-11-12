@@ -13,7 +13,7 @@ import (
 type itemStore interface {
 	List(ctx context.Context) ([]items.Item, error)
 	Get(ctx context.Context, id int64) (items.Item, error)
-	Create(ctx context.Context, name, kind string) (items.Item, error)
+	Create(ctx context.Context, name, kind, priority string) (items.Item, error)
 	Delete(ctx context.Context, id int64) error
 }
 

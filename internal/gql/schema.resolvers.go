@@ -18,6 +18,11 @@ func (r *itemResolver) Kind(ctx context.Context, obj *items.Item) (Kind, error) 
 	return Kind(strings.ToUpper(obj.Kind)), nil
 }
 
+// Priority is the resolver for the priority field.
+func (r *itemResolver) Priority(ctx context.Context, obj *items.Item) (Priority, error) {
+	return Priority(strings.ToUpper(obj.Priority)), nil
+}
+
 // Status is the resolver for the status field.
 func (r *itemResolver) Status(ctx context.Context, obj *items.Item) (Status, error) {
 	return Status(strings.ToUpper(obj.Status)), nil
@@ -25,12 +30,18 @@ func (r *itemResolver) Status(ctx context.Context, obj *items.Item) (Status, err
 
 // CreateItem is the resolver for the createItem field.
 func (r *mutationResolver) CreateItem(ctx context.Context, input CreateItemInput) (*items.Item, error) {
-	// The schema already checked that kind is IMPORT or EXPORT.
+	// The schema already checked kind and priority against their enums.
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
 		return nil, userError(ctx, "name is required", "input", "name")
 	}
-	it, err := r.store.Create(ctx, name, strings.ToLower(string(input.Kind)))
+	// The schema defaults an omitted priority to NORMAL; an explicit null
+	// gets the same.
+	priority := PriorityNormal
+	if input.Priority != nil {
+		priority = *input.Priority
+	}
+	it, err := r.store.Create(ctx, name, strings.ToLower(string(input.Kind)), strings.ToLower(string(priority)))
 	if err != nil {
 		return nil, internalError(ctx, err)
 	}

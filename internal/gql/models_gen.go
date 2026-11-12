@@ -13,6 +13,8 @@ type CreateItemInput struct {
 	// Must not be blank; surrounding spaces are trimmed.
 	Name string `json:"name"`
 	Kind Kind   `json:"kind"`
+	// NORMAL when left out.
+	Priority *Priority `json:"priority,omitempty"`
 }
 
 type Mutation struct {
@@ -71,6 +73,63 @@ func (e *Kind) UnmarshalJSON(b []byte) error {
 }
 
 func (e Kind) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+type Priority string
+
+const (
+	PriorityLow    Priority = "LOW"
+	PriorityNormal Priority = "NORMAL"
+	PriorityHigh   Priority = "HIGH"
+)
+
+var AllPriority = []Priority{
+	PriorityLow,
+	PriorityNormal,
+	PriorityHigh,
+}
+
+func (e Priority) IsValid() bool {
+	switch e {
+	case PriorityLow, PriorityNormal, PriorityHigh:
+		return true
+	}
+	return false
+}
+
+func (e Priority) String() string {
+	return string(e)
+}
+
+func (e *Priority) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = Priority(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid Priority", str)
+	}
+	return nil
+}
+
+func (e Priority) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *Priority) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e Priority) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

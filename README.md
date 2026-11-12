@@ -47,7 +47,7 @@ cmd/api ──go build──▶ binary ──docker build──▶ image ──A
 | GET    | `/healthz`        | Liveness probe (process only)                  |
 | GET    | `/readyz`         | Readiness probe + Postgres/Redis/RabbitMQ pings |
 | GET    | `/api/items`      | List items                                     |
-| POST   | `/api/items`      | Create `{"name": "latex", "kind": "import"}`; announces it on RabbitMQ |
+| POST   | `/api/items`      | Create `{"name": "latex", "kind": "import", "priority": "high"}` (`priority` is `low`, `normal` or `high`; default `normal`); announces it on RabbitMQ |
 | GET    | `/api/items/{id}` | Get one item                                   |
 | DELETE | `/api/items/{id}` | Delete one item                                |
 
@@ -149,7 +149,7 @@ Without `-H`, `curl -d` sends a form (`application/x-www-form-urlencoded`), and 
 | Not found | `404` | `null`, with HTTP 200 |
 | Bad input | `400` with `{"error": ...}` | HTTP 200 with an `errors` list (`BAD_USER_INPUT`); a query the schema rejects (unknown field or enum value) gets `422` |
 | Server error | `500 internal error` | HTTP 200, `errors: [{"message": "internal error"}]` |
-| Types | Documented by convention; `kind` is a string | In the schema, checked on every request; `kind` is an enum (`IMPORT`) |
+| Types | Documented by convention; `kind` and `priority` are strings | In the schema, checked on every request; `kind` and `priority` are enums (`IMPORT`, `HIGH`) |
 | HTTP caching | `GET` responses can be cached by URL | Mostly `POST`, so no HTTP caching |
 | Traces | A span per route: `GET /api/items/{id}` | `/graphql` (GET or POST), with a child span per operation: `query Item` |
 | Code | Hand-written handlers | Schema first: `make generate` writes the plumbing, you write the resolvers |

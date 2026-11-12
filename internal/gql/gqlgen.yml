@@ -30,8 +30,10 @@ models:
   Item:
     model: github.com/vandelay-labs/importer/internal/items.Item
     fields:
-      # Stored as "import"/"pending"; the schema has enums, so these map them.
+      # Stored as "import"/"normal"/"pending"; the schema has enums, so these map them.
       kind:
+        resolver: true
+      priority:
         resolver: true
       status:
         resolver: true

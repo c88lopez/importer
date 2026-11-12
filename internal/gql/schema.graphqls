@@ -9,6 +9,7 @@ type Item {
   id: ID!
   name: String!
   kind: Kind!
+  priority: Priority!
   status: Status!
   createdAt: Time!
   "When importer-worker processed it; null while PENDING."
@@ -18,6 +19,12 @@ type Item {
 enum Kind {
   IMPORT
   EXPORT
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
 }
 
 enum Status {
@@ -39,6 +46,8 @@ input CreateItemInput {
   "Must not be blank; surrounding spaces are trimmed."
   name: String!
   kind: Kind!
+  "NORMAL when left out."
+  priority: Priority = NORMAL
 }
 
 type Mutation {
