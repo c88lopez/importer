@@ -108,8 +108,9 @@ migrate-local: export DATABASE_URL = $(LOCAL_DATABASE_URL)
 migrate-local: ## run goose from your machine on the cluster's app database: make migrate-local [MIGRATE=status]
 	go run ./cmd/api migrate $(MIGRATE)
 
+MIGRATION_NAME ?= new-migration
 migration: ## add an empty migration file: make migration NAME=add_items_owner
-	go run ./cmd/api migrate create $(NAME)
+	go run ./cmd/api migrate create $(MIGRATION_NAME)
 
 ## --- performance ---
 # k6 runs in Docker, so it doesn't need installing. The scripts are in perf/;
