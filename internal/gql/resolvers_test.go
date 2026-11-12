@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -137,6 +138,38 @@ func TestCreatePriority(t *testing.T) {
 		if created.CreateItem.Priority != want {
 			t.Errorf("%s: priority = %q, want %q", input, created.CreateItem.Priority, want)
 		}
+	}
+}
+
+// item and items return the stored priority, not only createItem.
+func TestReadPriority(t *testing.T) {
+	c := client.New(NewHandler(&memStore{}))
+	var created struct{ CreateItem item }
+	c.MustPost(`mutation { createItem(input: {name: "latex", kind: IMPORT, priority: LOW}) { id } }`, &created)
+	c.MustPost(`mutation { createItem(input: {name: "chips", kind: EXPORT, priority: HIGH}) { id } }`, &created)
+
+	var one struct{ Item *item }
+	c.MustPost(`query($id: ID!) { item(id: $id) { priority } }`, &one, client.Var("id", created.CreateItem.ID))
+	if one.Item == nil || one.Item.Priority != "HIGH" {
+		t.Errorf("item: got %+v, want priority HIGH", one.Item)
+	}
+
+	var list struct{ Items []item }
+	c.MustPost(`{ items { priority } }`, &list)
+	if len(list.Items) != 2 || list.Items[0].Priority != "LOW" || list.Items[1].Priority != "HIGH" {
+		t.Errorf("items: got %+v, want priorities LOW then HIGH", list.Items)
+	}
+}
+
+// The Priority enum and items.Priorities must list the same values, so a
+// priority added to one side isn't missing from the other.
+func TestPriorityEnumMatchesItems(t *testing.T) {
+	var got []string
+	for _, p := range AllPriority {
+		got = append(got, strings.ToLower(string(p)))
+	}
+	if !slices.Equal(got, items.Priorities) {
+		t.Errorf("Priority enum = %v, items.Priorities = %v", got, items.Priorities)
 	}
 }
 
