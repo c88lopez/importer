@@ -144,7 +144,9 @@ release: ## tag a version: CI builds both images, Argo CD deploys them: make rel
 # pool_max_conns caps each pod's connection pool. pgx's default is one per CPU
 # it sees, 32 on this node, and Postgres allows 100 in all: with the HPAs'
 # maximums (4 pods each) the three services can open 4*6 + 4*6 + 4*3 = 60.
-# Raise a maxReplicas and this budget has to be checked again. The migration
+# deny-list shares the same Postgres and can open 15 more (see its Makefile),
+# so 75 of the 100 are taken. Raise a maxReplicas and this budget has to be
+# checked again, against that total. The migration
 # Job can't take pool_max_conns (see k8s/jobs/migrate.yaml): it uses
 # MIGRATE_DATABASE_URL, the same URL without it.
 # --server-side: a client-side `kubectl apply` would keep a plain-text copy of
