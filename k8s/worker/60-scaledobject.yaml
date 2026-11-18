@@ -8,8 +8,9 @@
 # "ready", so they don't count.
 #
 # Like the API, the Deployment has no replicas field: KEDA owns the count.
-# maxReplicaCount is limited by Postgres's connections: see "secrets" in the
-# Makefile before raising it.
+# maxReplicaCount isn't limited by Postgres's connections: pods connect through
+# PgBouncer, which caps the real connections on its own (see "secrets" in the
+# Makefile).
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:

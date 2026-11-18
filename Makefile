@@ -141,37 +141,47 @@ release: ## tag a version: CI builds both images, Argo CD deploys them: make rel
 # GraphQL service use the same database user as the API: they share its items
 # table.
 #
-# pool_max_conns caps each pod's connection pool. pgx's default is one per CPU
-# it sees, 32 on this node, and Postgres allows 100 in all: with the HPAs'
-# maximums (4 pods each) the three services can open 4*6 + 4*6 + 4*3 = 60.
-# deny-list shares the same Postgres and can open 15 more (see its Makefile),
-# so 75 of the 100 are taken. Raise a maxReplicas and this budget has to be
-# checked again, against that total. The migration
-# Job can't take pool_max_conns (see k8s/jobs/migrate.yaml): it uses
-# MIGRATE_DATABASE_URL, the same URL without it.
+# DATABASE_URL goes through PgBouncer (postgres-pooler-rw, in the platform
+# repo's manifests/data/postgres.yaml), not straight to Postgres: PG_POOLER is
+# the operator's URL with only the host changed. pool_max_conns caps each pod's
+# pgx pool (its default is one per CPU it sees, 32 on this node), but those are
+# connections to PgBouncer, which are cheap: 4*6 + 4*6 + 4*3 = 60 at the
+# HPAs' maximums. PgBouncer shares at most its default_pool_size (20) real
+# connections between all of them, for the app user on the app database, and
+# that is what counts against Postgres's 100, however many pods there are.
+#
+# PgBouncer is in transaction mode: consecutive transactions may run on
+# different real connections, so nothing can rely on session state (session
+# advisory locks, LISTEN/NOTIFY, SET outside a transaction, temp tables).
+# pgx's statement cache still works: PgBouncer tracks prepared statements
+# (max_prepared_statements). The migration Job takes a session advisory lock,
+# so MIGRATE_DATABASE_URL goes straight to postgres-rw; it also can't take
+# pool_max_conns (see k8s/jobs/migrate.yaml).
 # --server-side: a client-side `kubectl apply` would keep a plain-text copy of
 # the URLs (with their passwords) in the last-applied-configuration annotation.
 # --force-conflicts: this target owns these Secrets, including fields an older
 # client-side apply created, so a changed value replaces theirs.
 API_POOL    := 6
 WORKER_POOL := 3
+PG_DIRECT   = $$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)
+PG_POOLER   = $$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d | sed 's/@postgres-rw\./@postgres-pooler-rw./')
 # The namespace is Argo CD's: only create it if it doesn't exist yet (before the
 # first sync). Applying it over Argo CD's copy drops its tracking annotation, and
 # the Application shows OutOfSync until the next commit.
 secrets: ## create or update the services' Secrets from the cluster's Postgres, RabbitMQ and Redis Secrets
 	kubectl get namespace $(NAMESPACE) >/dev/null 2>&1 || kubectl apply -f k8s/00-namespace.yaml
 	kubectl -n $(NAMESPACE) create secret generic importer-api-deps \
-	  --from-literal=DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
-	  --from-literal=MIGRATE_DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)" \
+	  --from-literal=DATABASE_URL="$(PG_POOLER)?pool_max_conns=$(API_POOL)" \
+	  --from-literal=MIGRATE_DATABASE_URL="$(PG_DIRECT)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n $(DATA_NS) get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
 	  --from-literal=REDIS_URL="redis://:$$(kubectl -n $(DATA_NS) get secret redis-secret -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d)@redis.$(DATA_NS).svc.cluster.local:6379/0" \
 	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -
 	kubectl -n $(NAMESPACE) create secret generic importer-worker-deps \
-	  --from-literal=DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(WORKER_POOL)" \
+	  --from-literal=DATABASE_URL="$(PG_POOLER)?pool_max_conns=$(WORKER_POOL)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n $(DATA_NS) get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
 	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -
 	kubectl -n $(NAMESPACE) create secret generic importer-graphql-deps \
-	  --from-literal=DATABASE_URL="$$(kubectl -n $(DATA_NS) get secret postgres-app -o jsonpath='{.data.fqdn-uri}' | base64 -d)?pool_max_conns=$(API_POOL)" \
+	  --from-literal=DATABASE_URL="$(PG_POOLER)?pool_max_conns=$(API_POOL)" \
 	  --from-literal=RABBITMQ_URL="$$(kubectl -n $(DATA_NS) get secret rabbitmq-default-user -o jsonpath='{.data.connection_string}' | base64 -d)" \
 	  --from-literal=REDIS_URL="redis://:$$(kubectl -n $(DATA_NS) get secret redis-secret -o jsonpath='{.data.REDIS_PASSWORD}' | base64 -d)@redis.$(DATA_NS).svc.cluster.local:6379/0" \
 	  --dry-run=client -o yaml | kubectl apply --server-side --force-conflicts -f -
