@@ -359,7 +359,7 @@ kubectl -n importer get hpa -w            # in one terminal: targets and replica
 make perf-rest RATE=200 DURATION=5m       # in another
 make perf-worker MODE=backlog COUNT=5000  # the worker scales on its queue
 ```
-Pods are added within about 30s of the load, and removed 5 minutes after it ends. `kubectl scale` no longer sticks: the autoscaler sets the count back within 15s. The maximum of 4 is set by Postgres's 100 connections, not by CPU (see `secrets` in the Makefile).
+Pods are added within about 30s of the load, and removed 5 minutes after it ends. `kubectl scale` no longer sticks: the autoscaler sets the count back within 15s. Postgres's connections don't limit the maximum of 4: the services connect through PgBouncer, which shares a fixed number of real connections between all the pods (see `secrets` in the Makefile).
 
 **Change config.** Edit `WELCOME_MESSAGE` in `k8s/api/10-configmap.yaml` and push it to `main`. Once Argo CD has synced it:
 ```sh

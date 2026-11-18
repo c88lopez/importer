@@ -11,8 +11,9 @@
 # of the CPU *request* (50m), and would scale at almost no load. It's 60% of
 # the 250m limit, so pods are added before they're throttled.
 #
-# maxReplicas is limited by Postgres's connections, not by CPU: see "secrets"
-# in the Makefile before raising it.
+# maxReplicas is limited by CPU, not by Postgres's connections: pods connect
+# through PgBouncer, which caps the real connections on its own (see "secrets"
+# in the Makefile).
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
