@@ -1,6 +1,6 @@
 {
   "uid": "importer-api",
-  "title": "Importer API",
+  "title": "API",
   "description": "Requests, errors, latency, database, pods, versions and logs for importer-api. Source: importer/k8s/dashboards/importer-api.json",
   "tags": [
     "importer-api",

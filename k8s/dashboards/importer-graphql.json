@@ -1,6 +1,6 @@
 {
   "uid": "importer-graphql",
-  "title": "Importer GraphQL",
+  "title": "GraphQL",
   "description": "Operations, errors, latency against REST, database, pods, versions and logs for importer-graphql. Source: importer/k8s/dashboards/importer-graphql.json",
   "tags": [
     "importer-graphql",
