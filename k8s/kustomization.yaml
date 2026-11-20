@@ -39,6 +39,8 @@ images:
 
 # One ConfigMap per dashboard. Grafana's sidecar loads any ConfigMap labeled
 # grafana_dashboard, from any namespace, into the folder in grafana_folder.
+# That folder ends up under Services: platform's grafana-folders Job nests it
+# (the provisioner only makes top-level folders).
 configMapGenerator:
   - name: importer-api-dashboard
     namespace: importer
@@ -57,4 +59,4 @@ generatorOptions:
   labels:
     grafana_dashboard: "1"
   annotations:
-    grafana_folder: Services
+    grafana_folder: Importer

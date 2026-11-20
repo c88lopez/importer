@@ -1,6 +1,6 @@
 {
   "uid": "importer-worker",
-  "title": "Importer Worker",
+  "title": "Worker",
   "description": "Messages, queues, dead letters, database, pods, versions and logs for importer-worker. Source: importer/k8s/dashboards/importer-worker.json",
   "tags": [
     "importer-worker",
