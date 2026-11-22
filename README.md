@@ -173,7 +173,7 @@ The tests truncate tables and create and delete exchanges, so they get their own
 
 ```sh
 make dev-setup      # once: create importer_test and the importer-test vhost
-make tunnel         # in its own terminal: Postgres on 5433, RabbitMQ on 5673 (UI on 15673)
+make -C .. tunnel   # the workspace's tunnel, in its own terminal: Postgres on 5433, RabbitMQ on 5673 (UI on 15673)
 make run-api        # :8080, metrics on :9464
 make run-graphql    # optional, in another terminal: GraphiQL on :8081, metrics on :9466
 make run-worker     # optional, in another terminal: probes and metrics on :9465

@@ -7,12 +7,13 @@ NAMESPACE := importer
 # Where Postgres, RabbitMQ and Redis run (the platform repo's manifests/data/).
 DATA_NS   := data
 
-.PHONY: tunnel dev-setup run-api run-worker run-graphql generate test cover cover-html build image migrate-local migration release secrets status logs restart perf-rest perf-graphql perf-worker
+.PHONY: dev-setup run-api run-worker run-graphql generate test cover cover-html build image migrate-local migration release secrets status logs restart perf-rest perf-graphql perf-worker
 
 ## --- local ---
-# Local runs use the cluster's Postgres, RabbitMQ and Redis through `make tunnel`,
-# with credentials read from their Secrets (each value is fetched once, and
-# only by targets that use it). Override with the LOCAL_* variables.
+# Local runs use the cluster's Postgres, RabbitMQ and Redis through `make tunnel`
+# in the workspace's Makefile (one level up), with credentials read from their
+# Secrets (each value is fetched once, and only by targets that use it).
+# Override with the LOCAL_* variables.
 #
 #   run-*, migrate-local   the real `app` database and the `/` vhost
 #   test                   importer_test and the importer-test vhost, because
@@ -32,15 +33,6 @@ LOCAL_TEST_RABBITMQ_URL ?= amqp://$(MQ_USER):$(MQ_PASS)@localhost:5673/$(TEST_VH
 # DB 1 for tests; they only touch keys under their own prefix.
 LOCAL_REDIS_URL         ?= redis://:$(RD_PASS)@localhost:6380/0
 LOCAL_TEST_REDIS_URL    ?= redis://:$(RD_PASS)@localhost:6380/1
-
-# Leave it running in its own terminal. Ports 5433, 5673 and 6380, so it
-# doesn't clash with forwards on the default ports you may already have.
-tunnel: ## forward the cluster's Postgres (5433), RabbitMQ (5673, UI on 15673) and Redis (6380) to localhost
-	@trap 'kill 0' INT TERM EXIT; \
-	kubectl -n $(DATA_NS) port-forward svc/postgres-rw 5433:5432 & \
-	kubectl -n $(DATA_NS) port-forward svc/rabbitmq 5673:5672 15673:15672 & \
-	kubectl -n $(DATA_NS) port-forward svc/redis 6380:6379 & \
-	wait
 
 dev-setup: ## once: create the test database and the test vhost in the cluster
 	kubectl apply -f k8s/dev/

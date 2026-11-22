@@ -8,7 +8,7 @@ There are no local copies of Postgres, RabbitMQ or Redis. Local runs and tests u
 
 ```sh
 make dev-setup     # once: importer_test database + importer-test vhost in the cluster
-make tunnel        # keep running in its own terminal: Postgres :5433, RabbitMQ :5673 (UI :15673), Redis :6380
+make -C .. tunnel  # the workspace's tunnel; keep it running in its own terminal: Postgres :5433, RabbitMQ :5673 (UI :15673), Redis :6380
 make test          # go test -p 1 ./... against importer_test, the importer-test vhost and Redis DB 1
 make test GOFLAGS=-run=TestConsumerGivesUpAfterMaxDeliveries   # one test (make passes GOFLAGS through to go test)
 make cover         # coverage.out, generated gqlgen code excluded
