@@ -4,8 +4,8 @@ import { check } from 'k6';
 
 // Defaults are the cluster's NodePorts. From the k6 container, `make run-api`
 // on your machine is http://host.docker.internal:8080 (and :8081 for GraphQL).
-export const API_URL = __ENV.API_URL || 'http://192.168.68.57:30080';
-export const GRAPHQL_URL = __ENV.GRAPHQL_URL || 'http://192.168.68.57:30082/graphql';
+export const API_URL = __ENV.API_URL || 'http://homelab.home.arpa:30080';
+export const GRAPHQL_URL = __ENV.GRAPHQL_URL || 'http://homelab.home.arpa:30082/graphql';
 
 // Every item a run creates is named after the run, so it's easy to find (and
 // delete) if a run is interrupted before it cleans up.

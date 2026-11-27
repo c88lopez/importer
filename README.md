@@ -108,11 +108,11 @@ In the cluster, the URLs contain passwords, so they come from the `importer-api-
 
 Critical vs. non-critical is the same idea one level down: only take the pod out of rotation for something it truly can't work without. If the cache is down, it's usually better to serve slower than not at all.
 
-Try it: point `DATABASE_URL` at a host that doesn't exist, then run `kubectl -n importer get pods -w`. The pods show `0/1 READY` but `RESTARTS` stays at 0, and `curl http://192.168.68.57:30080/` fails because the Service has no ready pods behind it. `kubectl -n importer get endpointslices` shows the pod IPs marked not ready.
+Try it: point `DATABASE_URL` at a host that doesn't exist, then run `kubectl -n importer get pods -w`. The pods show `0/1 READY` but `RESTARTS` stays at 0, and `curl http://homelab.home.arpa:30080/` fails because the Service has no ready pods behind it. `kubectl -n importer get endpointslices` shows the pod IPs marked not ready.
 
 ## GraphQL
 
-importer-graphql serves the same items as the REST API, from the same table, through one endpoint, `POST /graphql`. `POST /` works too, for clients like Postman that default to the bare host. Open `/` in a browser for GraphiQL, which autocompletes from the schema: http://192.168.68.57:30082/ in the cluster, http://localhost:8081/ with `make run-graphql`. The schema is [internal/gql/schema.graphqls](internal/gql/schema.graphqls):
+importer-graphql serves the same items as the REST API, from the same table, through one endpoint, `POST /graphql`. `POST /` works too, for clients like Postman that default to the bare host. Open `/` in a browser for GraphiQL, which autocompletes from the schema: http://homelab.home.arpa:30082/ in the cluster, http://localhost:8081/ with `make run-graphql`. The schema is [internal/gql/schema.graphqls](internal/gql/schema.graphqls):
 
 ```graphql
 type Query {
@@ -129,11 +129,11 @@ From the command line, POST with a GraphQL content type:
 
 ```sh
 # JSON, the usual way (variables go in "variables")
-curl http://192.168.68.57:30082/graphql -H 'Content-Type: application/json' \
+curl http://homelab.home.arpa:30082/graphql -H 'Content-Type: application/json' \
   -d '{"query": "{ items { id name status } }"}'
 
 # Or the bare query as the body
-curl http://192.168.68.57:30082/graphql -H 'Content-Type: application/graphql' \
+curl http://homelab.home.arpa:30082/graphql -H 'Content-Type: application/graphql' \
   -d '{ items { id name status } }'
 ```
 
@@ -245,7 +245,7 @@ To roll back, first tell Image Updater to skip the bad version: add it to `ignor
 
 ## Deploy
 
-The cluster is Docker Desktop on another PC (`192.168.68.57`); `kubectl config current-context` prints `docker-desktop`. Postgres, RabbitMQ and Redis already run in its `data` namespace.
+The cluster is Docker Desktop on another PC (`homelab.home.arpa`); `kubectl config current-context` prints `docker-desktop`. Postgres, RabbitMQ and Redis already run in its `data` namespace.
 
 All three services run in the `importer` namespace. Each has its own Secret, with only the connection URLs it uses. Secrets aren't in Git, so they're the one thing you create by hand:
 
@@ -253,12 +253,12 @@ All three services run in the `importer` namespace. Each has its own Secret, wit
 make secrets        # once: copies the connection URLs from the Secrets in `data`
 ```
 
-Everything else is deployed by Argo CD (http://192.168.68.57:30081), from `k8s/` on `main`: the `importer` Application in the [platform repo](https://github.com/c88lopez/platform). Any commit that changes `k8s/` (a ConfigMap, a dashboard, a new version) is live within about 3 minutes.
+Everything else is deployed by Argo CD (http://homelab.home.arpa:30081), from `k8s/` on `main`: the `importer` Application in the [platform repo](https://github.com/c88lopez/platform). Any commit that changes `k8s/` (a ConfigMap, a dashboard, a new version) is live within about 3 minutes.
 
 ```sh
 make status
-curl http://192.168.68.57:30080/readyz   # REST API
-curl http://192.168.68.57:30082/readyz   # GraphQL
+curl http://homelab.home.arpa:30080/readyz   # REST API
+curl http://homelab.home.arpa:30082/readyz   # GraphQL
 ```
 
 ## Tracing
@@ -342,7 +342,7 @@ curl -s localhost:9464/metrics | grep http_server_request_duration_seconds_count
 
 **See load balancing.** Run this a few times and watch the `pod` field change:
 ```sh
-for i in $(seq 6); do curl -s http://192.168.68.57:30080/ | grep -o '"pod":"[^"]*"'; done
+for i in $(seq 6); do curl -s http://homelab.home.arpa:30080/ | grep -o '"pod":"[^"]*"'; done
 ```
 
 **See that state is shared.** POST an item, then list items a few times. Requests hit different pods (check `/`), but every pod reads the same Postgres table, so the list is always the same. Before 1.2.0 items were kept in each pod's memory, and half the requests showed an empty list.

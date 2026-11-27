@@ -1,5 +1,5 @@
-# GraphQL on http://192.168.68.57:30082/graphql, GraphiQL on
-# http://192.168.68.57:30082/ (the API is on 30080, Argo CD on 30081).
+# GraphQL on http://homelab.home.arpa:30082/graphql, GraphiQL on
+# http://homelab.home.arpa:30082/ (the API is on 30080, Argo CD on 30081).
 apiVersion: v1
 kind: Service
 metadata:
