@@ -9,7 +9,7 @@ description: How importer gets to the cluster - Argo CD deploys from k8s/ on mai
 
 - Argo CD deploys `k8s/` from `main`. The Application lives in the separate platform repo, not here.
 - A commit that changes only `k8s/` (a ConfigMap, a dashboard) is live within a few minutes, with no release. Such commits skip CI.
-- Check a deploy with `make status`, and `curl http://192.168.68.57:30080/readyz` (REST) or `:30082/readyz` (GraphQL).
+- Check a deploy with `make status`, and `curl http://homelab.home.arpa:30080/readyz` (REST) or `:30082/readyz` (GraphQL).
 
 ## Releasing a version
 
